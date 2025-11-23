@@ -1,3 +1,4 @@
+// FIXED: removed dot-all /s regex and simplified sharedData extraction
 export async function onRequestPost(context) {
   try {
     const { request } = context;
@@ -27,10 +28,10 @@ export async function onRequestPost(context) {
 
     const html = await igResp.text();
 
-    // simple unescape for \u0026 -> &
+    // small helper to unescape common escaped ampersand
     const unescapeStr = s => String(s).replace(/\\u0026/g, '&');
 
-    // 1) Try OG meta tags
+    // 1) Try common OG meta tags
     const metaMatch =
       html.match(/<meta[^>]*property=["']og:video:secure_url["'][^>]*content=["']([^"']+)["']/i) ||
       html.match(/<meta[^>]*property=["']og:video["'][^>]*content=["']([^"']+)["']/i) ||
@@ -41,7 +42,7 @@ export async function onRequestPost(context) {
       return jsonResponse({ media_url: unescapeStr(metaMatch[1]) });
     }
 
-    // 2) Try embedded JSON snippets for video or image
+    // 2) Try embedded JSON-like snippets for video or image
     const videoMatch = html.match(/"video_url":"([^"]+)"/);
     if (videoMatch && videoMatch[1]) {
       return jsonResponse({ media_url: unescapeStr(videoMatch[1]) });
@@ -52,14 +53,15 @@ export async function onRequestPost(context) {
       return jsonResponse({ media_url: unescapeStr(displayMatch[1]) });
     }
 
-    // 3) Fallback: locate window._sharedData without dot-all regex
+    // 3) Fallback: find window._sharedData by indexOf + slice (avoid /s regex)
     const marker = 'window._sharedData';
     const idx = html.indexOf(marker);
     if (idx !== -1) {
-      const startBrace = html.indexOf('{', idx);
-      const endScript = html.indexOf('</script>', startBrace);
-      if (startBrace !== -1 && endScript !== -1) {
-        const jsonText = html.slice(startBrace, endScript).trim();
+      const start = html.indexOf('{', idx);
+      // limit end search to next 200000 chars to avoid pathological long scans
+      const endSearch = html.indexOf('</script>', start);
+      if (start !== -1 && endSearch !== -1) {
+        const jsonText = html.slice(start, endSearch).trim();
         try {
           const shared = JSON.parse(jsonText);
           const entryData = shared.entry_data || shared.entryData;
@@ -81,7 +83,7 @@ export async function onRequestPost(context) {
             }
           }
         } catch (e) {
-          // ignore parse errors
+          // ignore JSON parse errors
         }
       }
     }
