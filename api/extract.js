@@ -1,9 +1,8 @@
-// api/extract.js  (Vercel Serverless)
-// POST { "url": "https://www.instagram.com/..." }
-// Response JSON always. CORS enabled.
+// api/extract.js (debug version)
+// WARNING: only use this for debugging — it returns a snippet of remote HTML.
+// Replace back to the previous (clean) version for production.
 
 export default async function handler(req, res) {
-  // Only allow POST
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
@@ -27,81 +26,82 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'URL tidak valid' });
     }
 
-    // fetch with timeout using AbortController
     const controller = new AbortController();
-    const timeoutMs = 10000;
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutMs = 12000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     const resp = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; IGDownloader/1.0)',
+        // coba User-Agent real browser jika terblok
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
       },
       redirect: 'follow',
       signal: controller.signal
     }).catch(err => {
-      if (err.name === 'AbortError') throw { code: 0, message: 'timeout' };
+      if (err.name === 'AbortError') throw { code: 'timeout', message: 'fetch timeout' };
       throw err;
     });
 
-    clearTimeout(timeout);
+    clearTimeout(timer);
 
-    if (!resp) throw { code: 0, message: 'No response' };
+    if (!resp) throw { code: 'no_response', message: 'No response from fetch' };
 
-    // If IG returns 429 or redirects to login, surface that
-    if (resp.status === 429) return res.status(429).json({ error: 'Instagram rate limit (429)' });
-    if (resp.status >= 500) return res.status(502).json({ error: `Instagram fetch failed: ${resp.status}` });
-
+    // read text for parsing & debugging
     const html = await resp.text();
 
-    // helper to replace escaped ampersands
-    const unescapeStr = s => (typeof s === 'string') ? s.replace(/\\u0026/g, '&') : s;
+    // quick checks
+    if (resp.status === 429) return res.status(429).json({ error: 'Instagram rate limit (429)' });
+    if (resp.status === 403 || /login|checkpoint|challenge/i.test(html)) {
+      // return a trimmed snippet to see what's returned
+      return res.status(403).json({
+        error: 'Instagram returned login/challenge (blocked)',
+        status: resp.status,
+        snippet: html.slice(0, 2000)
+      });
+    }
 
-    // 1) meta tags (og:video, og:image)
+    // helper unescape
+    const unescapeStr = s => (typeof s==='string') ? s.replace(/\\u0026/g, '&') : s;
+
+    // try meta tags
     let m = html.match(/<meta[^>]*property=["']og:video:secure_url["'][^>]*content=["']([^"']+)["']/i)
          || html.match(/<meta[^>]*property=["']og:video["'][^>]*content=["']([^"']+)["']/i)
          || html.match(/<meta[^>]*property=["']og:image:secure_url["'][^>]*content=["']([^"']+)["']/i)
          || html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
+    if (m && m[1]) return res.status(200).json({ media_url: unescapeStr(m[1]) });
 
-    if (m && m[1]) {
-      return res.status(200).json({ media_url: unescapeStr(m[1]) });
+    // try several JSON like patterns
+    const patterns = [
+      /"video_url"\s*:\s*"([^"]+)"/,
+      /"display_url"\s*:\s*"([^"]+)"/,
+      /"fallback_url"\s*:\s*"([^"]+)"/,
+      /"url":"([^"]+\.mp4[^"]*)"/i
+    ];
+    for (const p of patterns) {
+      const found = html.match(p);
+      if (found && found[1]) return res.status(200).json({ media_url: unescapeStr(found[1]) });
     }
 
-    // 2) direct JSON tokens like "video_url":"..."
-    let v = html.match(/"video_url"\s*:\s*"([^"]+)"/);
-    if (v && v[1]) return res.status(200).json({ media_url: unescapeStr(v[1]) });
-
-    // 3) display_url token
-    let i = html.match(/"display_url"\s*:\s*"([^"]+)"/);
-    if (i && i[1]) return res.status(200).json({ media_url: unescapeStr(i[1]) });
-
-    // 4) window._sharedData or similar (use [\s\S] instead of /s)
-    const sharedMatch = html.match(/window\._sharedData\s*=\s*(\{[\s\S]*?\});\s*<\/script>/);
+    // window._sharedData (use [\s\S] since /s may not be supported)
+    const sharedMatch = html.match(/window\._sharedData\s*=\s*(\{[\s\S]*?\});\s*<\/script>/i);
     if (sharedMatch && sharedMatch[1]) {
       try {
         const shared = JSON.parse(sharedMatch[1]);
-        const entryData = shared.entry_data || shared.entryData || shared.entryData || shared;
-        // walk possible structures
-        const candidates = [];
-
+        const entryData = shared.entry_data || shared.entryData || shared;
+        const nodes = [];
         if (entryData && typeof entryData === 'object') {
-          // collect possible media nodes
-          const values = Object.values(entryData);
-          for (const v0 of values) {
-            if (Array.isArray(v0)) {
-              for (const it of v0) candidates.push(it);
-            } else candidates.push(v0);
+          for (const v of Object.values(entryData)) {
+            if (Array.isArray(v)) nodes.push(...v);
+            else nodes.push(v);
           }
         }
-
-        for (const p of candidates) {
+        for (const p of nodes) {
           const media = p?.[0]?.graphql?.shortcode_media || p?.graphql?.shortcode_media || p;
           if (!media) continue;
-          // video preferred
           if (media.is_video && media.video_url) return res.status(200).json({ media_url: media.video_url });
           if (media.display_url) return res.status(200).json({ media_url: media.display_url });
-          // carousel
           if (media.edge_sidecar_to_children && media.edge_sidecar_to_children.edges) {
             const first = media.edge_sidecar_to_children.edges[0]?.node;
             if (first?.is_video && first?.video_url) return res.status(200).json({ media_url: first.video_url });
@@ -109,36 +109,33 @@ export default async function handler(req, res) {
           }
         }
       } catch(e){
-        // ignore parse error, continue fallback
+        // JSON parse error -> continue to snippet return
       }
     }
 
-    // 5) try to find JSON-LD <script type="application/ld+json"> ... (some posts)
-    const ldJsonMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
-    if (ldJsonMatch && ldJsonMatch[1]) {
+    // JSON-LD fallback
+    const ld = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (ld && ld[1]) {
       try {
-        const ld = JSON.parse(ldJsonMatch[1]);
-        if (ld && ld.contentUrl) return res.status(200).json({ media_url: ld.contentUrl });
-        if (ld && ld.image) return res.status(200).json({ media_url: ld.image });
+        const parsed = JSON.parse(ld[1]);
+        if (parsed && parsed.contentUrl) return res.status(200).json({ media_url: parsed.contentUrl });
+        if (parsed && parsed.image) return res.status(200).json({ media_url: parsed.image });
       } catch(e){}
     }
 
-    // nothing found
-    return res.status(404).json({ error: 'Media tidak ditemukan (mungkin private atau struktur berubah).' });
+    // nothing found -> return debug info with snippet
+    return res.status(404).json({
+      error: 'Media tidak ditemukan (debug)',
+      status: resp.status,
+      snippet: html.slice(0, 2000)
+    });
 
   } catch (err) {
-    // Normalize error objects thrown above
-    const code = err && err.code ? err.code : 0;
-    const msg = err && err.message ? String(err.message) : String(err || 'Unknown error');
-
-    if (code === 429) return res.status(429).json({ error: 'Instagram rate limit (429)' });
-
-    // timeout
-    if (msg && msg.toLowerCase().includes('timeout')) {
-      return res.status(504).json({ error: 'Request timed out' });
-    }
-
+    const msg = err && err.message ? String(err.message) : String(err || 'Unknown');
     console.error('extract error:', err);
-    return res.status(500).json({ error: 'Server error', details: msg });
+    if ((msg||'').toLowerCase().includes('timeout')) {
+      return res.status(504).json({ error: 'timeout' });
+    }
+    return res.status(500).json({ error: 'server error', details: msg });
   }
 }
