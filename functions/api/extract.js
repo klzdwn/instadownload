@@ -52,11 +52,10 @@ export async function onRequestPost(context) {
       return jsonResponse({ media_url: unescapeStr(displayMatch[1]) });
     }
 
-    // 3) Fallback: try to locate window._sharedData manually (avoid complex regex)
+    // 3) Fallback: locate window._sharedData without dot-all regex
     const marker = 'window._sharedData';
     const idx = html.indexOf(marker);
     if (idx !== -1) {
-      // find the first "{" after marker and the following closing "</script>"
       const startBrace = html.indexOf('{', idx);
       const endScript = html.indexOf('</script>', startBrace);
       if (startBrace !== -1 && endScript !== -1) {
@@ -82,7 +81,7 @@ export async function onRequestPost(context) {
             }
           }
         } catch (e) {
-          // ignore parse errors, we'll continue to final not-found response
+          // ignore parse errors
         }
       }
     }
