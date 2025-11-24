@@ -1,7 +1,7 @@
 // script.js
 // Frontend minimal: find input/button, call /api/extract, render results
 (function () {
-  // small helpers
+  // helpers
   const el = (sel, root = document) => root.querySelector(sel);
   const create = (tag, attrs = {}, children = []) => {
     const e = document.createElement(tag);
@@ -16,7 +16,6 @@
     return e;
   };
 
-  // try find input + button(s) in the page
   function findControls() {
     const input =
       el('input[type="url"]') ||
@@ -24,15 +23,12 @@
       el('input[name="url"]') ||
       document.querySelector("input");
 
-    // prefer a button that contains "Cari" or "search" text
     const buttons = Array.from(document.querySelectorAll("button,input[type=button],input[type=submit]"));
     let searchBtn = buttons.find(b => /cari|search|find|download/i.test((b.textContent || b.value || "").trim()));
     if (!searchBtn) searchBtn = buttons[0] || null;
 
-    // container to render result (try to use existing card-like area)
-    let resultContainer = el("#ig-result") || el(".result") || el(".results") || null;
+    let resultContainer = el("#ig-result") || el(".results") || null;
     if (!resultContainer) {
-      // create a container under the input
       resultContainer = create("div", { id: "ig-result", style: "margin-top:18px;max-width:840px;" });
       if (input && input.parentNode) input.parentNode.insertBefore(resultContainer, input.nextSibling);
       else document.body.appendChild(resultContainer);
@@ -41,56 +37,77 @@
     return { input, searchBtn, resultContainer };
   }
 
-  // render helpers
   function clearResult(container) {
     container.innerHTML = "";
   }
 
   function showMessage(container, text, type = "info") {
-    const colors = { info: "#2D3748", success: "#2F855A", error: "#E53E3E" };
+    const colors = { info: "#2D3748", success: "#38A169", error: "#E53E3E" };
     const msg = create("div", {
       class: "ig-msg",
-      style: `padding:8px 12px;border-radius:8px;background:${colors[type] || colors.info};color:#fff;margin-bottom:12px;`
+      style: `padding:10px 12px;border-radius:8px;background:${colors[type]||colors.info};color:#fff;margin-bottom:12px;`
     });
     msg.textContent = text;
     container.appendChild(msg);
     return msg;
   }
 
+  // improved detection: try many common keys used by providers
   function detectThumb(item) {
-    // common keys used by API responses
-    return item.thumb || item.thumbnail || item.preview || item.poster || item.poster_url || item.thumbnail_url || null;
+    if (!item) return null;
+    // direct keys
+    const candidates = [
+      "thumb", "thumbnail", "preview", "poster", "thumbnail_url", "thumbnail_url_with_play_button",
+      "display_url", "display_src", "image", "images", "poster_url"
+    ];
+    for (const k of candidates) {
+      if (item[k]) {
+        if (typeof item[k] === "string") return item[k];
+        // if array/object try deeper
+        if (Array.isArray(item[k]) && item[k].length && typeof item[k][0] === "string") return item[k][0];
+        if (item[k] && item[k].url) return item[k].url;
+        if (item[k] && item[k].src) return item[k].src;
+      }
+    }
+    // nested shapes: image_versions2.candidates[0].url (instagram internal)
+    try {
+      if (item.image_versions2 && Array.isArray(item.image_versions2.candidates) && item.image_versions2.candidates[0]) {
+        return item.image_versions2.candidates[0].url;
+      }
+    } catch (e) {}
+    // if media is an array of urls
+    if (Array.isArray(item.media) && item.media.length && typeof item.media[0] === "string") {
+      // if first media looks like image jpg/png use that
+      const first = item.media[0];
+      if (/\.(jpe?g|png|webp|gif)(\?|$)/i.test(first)) return first;
+    }
+    // if single media string and ends with image ext -> use as thumb
+    const mediaStr = item.media || item.url || item.video || item.src || (item.urls && item.urls[0]);
+    if (typeof mediaStr === "string" && /\.(jpe?g|png|webp|gif)(\?|$)/i.test(mediaStr)) return mediaStr;
+    // no candidate
+    return null;
   }
 
   function detectMediaUrl(item) {
-    return item.media || item.url || item.video || item.src || (Array.isArray(item.urls) ? item.urls[0] : null) || (Array.isArray(item.data) && item.data[0] && (item.data[0].media || item.data[0].url)) || "";
+    if (!item) return "";
+    if (item.media && typeof item.media === "string") return item.media;
+    if (item.url && typeof item.url === "string") return item.url;
+    if (item.video && typeof item.video === "string") return item.video;
+    if (item.src && typeof item.src === "string") return item.src;
+    if (Array.isArray(item.urls) && item.urls[0]) return item.urls[0];
+    if (Array.isArray(item.media) && item.media[0]) return item.media[0];
+    return "";
   }
 
-  // try fetch oEmbed thumbnail from Instagram (public posts only)
-  async function fetchOEmbedThumb(instaUrl) {
-    if (!instaUrl) return null;
-    try {
-      // Instagram oEmbed is public and returns thumbnail_url for many posts
-      const res = await fetch(`https://api.instagram.com/oembed/?url=${encodeURIComponent(instaUrl)}`);
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.thumbnail_url || data.thumbnail_url_with_play_button || null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // render list (now async so we can await thumbnail fallback)
-  async function renderMediaList(container, data, rawUrl) {
+  function renderMediaList(container, data) {
     clearResult(container);
     const payload = data && data.data ? data.data : data;
 
-    // header
     const header = create("div", { style: "color:#9AE6B4;margin-bottom:8px;font-weight:600" });
     header.textContent = "Sukses — lihat hasil di bawah";
     container.appendChild(header);
 
-    // find items array in response
+    // normalize to items array
     let items = [];
     if (Array.isArray(payload)) items = payload;
     else if (payload && Array.isArray(payload.data)) items = payload.data;
@@ -101,45 +118,31 @@
       return;
     }
 
-    // render each
-    for (let idx = 0; idx < items.length; idx++) {
-      const it = items[idx];
+    items.forEach((it, idx) => {
       const card = create("div", {
         style: "background:rgba(255,255,255,0.03);padding:14px;border-radius:12px;margin-bottom:12px;display:flex;gap:12px;align-items:center;"
       });
 
-      // thumbnail container
+      // thumbnail
       const thumbWrap = create("div", { style: "width:96px;height:96px;flex:0 0 96px;border-radius:8px;overflow:hidden;background:#061018;display:flex;align-items:center;justify-content:center" });
-
-      // detect thumbnail
-      let thumb = detectThumb(it);
-
-      // if no thumb, try oEmbed fallback using the original post URL (rawUrl)
-      if (!thumb && rawUrl) {
-        try {
-          // await oEmbed only when necessary
-          thumb = await fetchOEmbedThumb(rawUrl);
-        } catch (e) {
-          thumb = null;
-        }
-      }
-
+      const thumb = detectThumb(it);
       if (thumb) {
         const img = create("img", { src: thumb, style: "width:100%;height:100%;object-fit:cover;display:block" });
-        // fallback if image can't load
+        // if image fails load, show fallback text and try to inject media url if it is an image
         img.onerror = () => {
           thumbWrap.innerHTML = "";
           thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:12px" }));
         };
         thumbWrap.appendChild(img);
       } else {
+        // no thumb candidate -> fallback display
         thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:12px" }));
       }
       card.appendChild(thumbWrap);
 
-      // info column
+      // info
       const info = create("div", { style: "flex:1;min-width:0" });
-      const title = create("div", { text: `Media #${idx + 1}`, style: "font-weight:700;color:#E2E8F0;margin-bottom:6px" });
+      const title = create("div", { text: `Media #${idx+1}`, style: "font-weight:700;color:#E2E8F0;margin-bottom:6px" });
       info.appendChild(title);
 
       const mediaUrl = detectMediaUrl(it) || "";
@@ -147,11 +150,10 @@
       const meta = create("div", { text: `${typeText} • ${mediaUrl}`, style: "font-size:12px;color:#CBD5E0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" });
       info.appendChild(meta);
 
-      // actions row
       const row = create("div", { style: "margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" });
-
       const btnPreview = create("button", { text: "Preview", style: "padding:8px 12px;border-radius:8px;background:#1A202C;color:#fff;border:none;cursor:pointer" });
       const btnDownload = create("a", { text: "Download", href: mediaUrl || "#", style: "padding:8px 12px;border-radius:8px;background:#6B46C1;color:#fff;text-decoration:none;display:inline-block" });
+      if (mediaUrl) btnDownload.setAttribute("download", "");
       const btnOpen = create("a", { text: "Open link", href: mediaUrl || "#", target: "_blank", style: "padding:8px 12px;border-radius:8px;background:transparent;color:#63B3ED;border:1px solid rgba(255,255,255,0.06);text-decoration:none;display:inline-block" });
 
       btnPreview.addEventListener("click", () => showLightbox(mediaUrl, typeText));
@@ -162,10 +164,10 @@
       info.appendChild(row);
       card.appendChild(info);
       container.appendChild(card);
-    }
+    });
   }
 
-  // simple lightbox
+  // small lightbox
   function showLightbox(url, type) {
     if (!url) return alert("No media URL");
     const overlay = create("div", {
@@ -173,12 +175,12 @@
     });
     const box = create("div", { style: "max-width:100%;max-height:100%;overflow:auto;" });
     if (type === "video" || (typeof url === "string" && url.match(/\.mp4|video/))) {
-      const v = create("video", { controls: "", style: "max-width:100%;max-height:80vh;border-radius:8px;background:#000" });
+      const v = create("video", { controls: "", style: "max-width:100%;max-height:80vh;border-radius:8px;background:#000;display:block" });
       v.src = url;
       v.autoplay = true;
       box.appendChild(v);
     } else {
-      const im = create("img", { src: url, style: "max-width:100%;max-height:80vh;border-radius:8px" });
+      const im = create("img", { src: url, style: "max-width:100%;max-height:80vh;border-radius:8px;display:block" });
       box.appendChild(im);
     }
     const close = create("button", { text: "Close", style: "display:block;margin-top:12px;padding:8px 12px;border-radius:8px;background:#E53E3E;color:#fff;border:none;cursor:pointer" });
@@ -188,7 +190,6 @@
     document.body.appendChild(overlay);
   }
 
-  // main flow
   async function main() {
     const { input, searchBtn, resultContainer } = findControls();
     if (!input || !searchBtn) {
@@ -196,7 +197,6 @@
       return;
     }
 
-    // attach click
     searchBtn.addEventListener("click", async (ev) => {
       ev.preventDefault();
       const rawUrl = (input.value || "").trim();
@@ -216,7 +216,6 @@
           body: JSON.stringify({ url: rawUrl })
         });
 
-        // try parse
         const txt = await res.text();
         let json;
         try {
@@ -229,7 +228,6 @@
           return;
         }
 
-        // if error returned
         if (res.status >= 400) {
           clearResult(resultContainer);
           const msg = json && (json.error || json.detail) ? (json.error || json.detail) : `Server responded ${res.status}`;
@@ -241,8 +239,7 @@
           return;
         }
 
-        // ok render (pass rawUrl so thumbnails fallback can use oEmbed)
-        await renderMediaList(resultContainer, json, rawUrl);
+        renderMediaList(resultContainer, json.data || json);
 
       } catch (err) {
         clearResult(resultContainer);
@@ -251,9 +248,8 @@
       }
     });
 
-    // optional: clear button support (if present)
-    const clearBtn = Array.from(document.querySelectorAll("button,input[type=button],input[type=submit]"))
-      .find(b => /hapus|clear|reset/i.test((b.textContent || b.value || "").trim()));
+    // clear button(s)
+    const clearBtn = Array.from(document.querySelectorAll("button,input[type=button]")).find(b => /hapus|clear|reset/i.test((b.textContent||b.value||"").toLowerCase()));
     if (clearBtn) {
       clearBtn.addEventListener("click", (e) => {
         e.preventDefault();
@@ -264,7 +260,6 @@
     }
   }
 
-  // run
   document.addEventListener("DOMContentLoaded", main);
   if (document.readyState === "interactive" || document.readyState === "complete") main();
 })();
