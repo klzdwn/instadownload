@@ -1,40 +1,56 @@
 // /api/thumb.js
-// Proxy untuk thumbnail Instagram CDN (agar tidak diblock oleh CORS/user-agent)
+// Proxy thumbnail image to avoid CORS/hotlink problems.
+// Usage: /api/thumb?url=<encoded-image-url>
 
 export default async function handler(req, res) {
-  try {
-    const url = req.query.url;
-    if (!url) {
-      return res.status(400).json({ error: "Missing ?url=" });
-    }
+  // Allow CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-    // fetch gambar dari instagram CDN
+  if (req.method === "OPTIONS") return res.status(204).end();
+  const url = (req.query && req.query.url) ? String(req.query.url) : (req.url ? (new URL(req.url, `http://${req.headers.host}`)).searchParams.get("url") : null);
+  if (!url) return res.status(400).send("Missing url");
+
+  try {
+    // basic validation to avoid internal fetch
+    if (!/^https?:\/\//i.test(url)) return res.status(400).send("Invalid url");
+
+    // fetch the image
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
     const upstream = await fetch(url, {
       method: "GET",
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-        "Accept": "image/*"
-      }
+        // try to mimic browser to avoid 403
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Accept": "image/*,*/*;q=0.8"
+      },
+      signal: controller.signal
+    }).catch(err => {
+      clearTimeout(timeout);
+      throw err;
     });
 
-    if (!upstream.ok) {
-      return res.status(502).json({
-        error: "Failed fetch thumb",
-        status: upstream.status,
-      });
+    clearTimeout(timeout);
+
+    if (!upstream || !upstream.ok) {
+      return res.status(502).send("Failed to fetch image");
     }
 
-    // ambil buffer
+    const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+
+    // stream as arrayBuffer (Vercel serverless doesn't expose piping easily)
     const buf = Buffer.from(await upstream.arrayBuffer());
+    res.status(200).send(buf);
 
-    // set header image
-    res.setHeader("Content-Type", upstream.headers.get("content-type") || "image/jpeg");
-    res.setHeader("Cache-Control", "public, max-age=86400"); // 1 day caching
-
-    return res.status(200).send(buf);
-
-  } catch (e) {
-    return res.status(500).json({ error: "Proxy error", detail: String(e) });
+  } catch (err) {
+    console.error("thumb proxy error:", err && err.stack ? err.stack : err);
+    if (err.name === "AbortError") return res.status(504).send("Upstream timeout");
+    return res.status(500).send("Proxy error");
   }
 }
