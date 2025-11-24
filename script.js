@@ -1,7 +1,6 @@
 // script.js
 // Frontend minimal: find input/button, call /api/extract, render results
 (function () {
-  // helpers
   const el = (sel, root = document) => root.querySelector(sel);
   const create = (tag, attrs = {}, children = []) => {
     const e = document.createElement(tag);
@@ -37,9 +36,7 @@
     return { input, searchBtn, resultContainer };
   }
 
-  function clearResult(container) {
-    container.innerHTML = "";
-  }
+  function clearResult(container) { container.innerHTML = ""; }
 
   function showMessage(container, text, type = "info") {
     const colors = { info: "#2D3748", success: "#38A169", error: "#E53E3E" };
@@ -52,39 +49,33 @@
     return msg;
   }
 
-  // improved detection: try many common keys used by providers
+  // detect thumbnail from many common keys
   function detectThumb(item) {
     if (!item) return null;
-    // direct keys
-    const candidates = [
-      "thumb", "thumbnail", "preview", "poster", "thumbnail_url", "thumbnail_url_with_play_button",
-      "display_url", "display_src", "image", "images", "poster_url"
-    ];
-    for (const k of candidates) {
-      if (item[k]) {
-        if (typeof item[k] === "string") return item[k];
-        // if array/object try deeper
-        if (Array.isArray(item[k]) && item[k].length && typeof item[k][0] === "string") return item[k][0];
-        if (item[k] && item[k].url) return item[k].url;
-        if (item[k] && item[k].src) return item[k].src;
-      }
+    const keys = ["thumb","thumbnail","preview","poster","thumbnail_url","display_url","image","poster_url","thumbnail_src","display_src"];
+    for (const k of keys) {
+      try {
+        const v = item[k];
+        if (!v) continue;
+        if (typeof v === "string") return v;
+        if (Array.isArray(v) && v.length && typeof v[0] === "string") return v[0];
+        if (v && typeof v.url === "string") return v.url;
+        if (v && typeof v.src === "string") return v.src;
+      } catch (e) {}
     }
-    // nested shapes: image_versions2.candidates[0].url (instagram internal)
+    // instagram style nested
     try {
       if (item.image_versions2 && Array.isArray(item.image_versions2.candidates) && item.image_versions2.candidates[0]) {
         return item.image_versions2.candidates[0].url;
       }
     } catch (e) {}
-    // if media is an array of urls
+    // if media array contains an image url
     if (Array.isArray(item.media) && item.media.length && typeof item.media[0] === "string") {
-      // if first media looks like image jpg/png use that
-      const first = item.media[0];
-      if (/\.(jpe?g|png|webp|gif)(\?|$)/i.test(first)) return first;
+      if (/\.(jpe?g|png|webp|gif)(\?|$)/i.test(item.media[0])) return item.media[0];
     }
-    // if single media string and ends with image ext -> use as thumb
+    // last resort: if single media string that looks like image
     const mediaStr = item.media || item.url || item.video || item.src || (item.urls && item.urls[0]);
     if (typeof mediaStr === "string" && /\.(jpe?g|png|webp|gif)(\?|$)/i.test(mediaStr)) return mediaStr;
-    // no candidate
     return null;
   }
 
@@ -107,7 +98,6 @@
     header.textContent = "Sukses — lihat hasil di bawah";
     container.appendChild(header);
 
-    // normalize to items array
     let items = [];
     if (Array.isArray(payload)) items = payload;
     else if (payload && Array.isArray(payload.data)) items = payload.data;
@@ -123,29 +113,38 @@
         style: "background:rgba(255,255,255,0.03);padding:14px;border-radius:12px;margin-bottom:12px;display:flex;gap:12px;align-items:center;"
       });
 
-      // thumbnail
+      // thumb area: image OR small video element fallback
       const thumbWrap = create("div", { style: "width:96px;height:96px;flex:0 0 96px;border-radius:8px;overflow:hidden;background:#061018;display:flex;align-items:center;justify-content:center" });
       const thumb = detectThumb(it);
+      const mediaUrl = detectMediaUrl(it) || "";
       if (thumb) {
         const img = create("img", { src: thumb, style: "width:100%;height:100%;object-fit:cover;display:block" });
-        // if image fails load, show fallback text and try to inject media url if it is an image
         img.onerror = () => {
           thumbWrap.innerHTML = "";
           thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:12px" }));
         };
         thumbWrap.appendChild(img);
+      } else if (mediaUrl && /mp4|video|\.mp4/i.test(mediaUrl)) {
+        // fallback: show small looping muted video as thumbnail (if CORS allows)
+        const v = create("video", { src: mediaUrl, muted: "", playsinline: "", loop: "", style: "width:100%;height:100%;object-fit:cover;display:block" });
+        // try autoplay; some browsers require user gesture - but muted helps
+        v.autoplay = true;
+        v.playsInline = true;
+        // if video can't play, show fallback text
+        v.onerror = () => {
+          thumbWrap.innerHTML = "";
+          thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:12px" }));
+        };
+        thumbWrap.appendChild(v);
       } else {
-        // no thumb candidate -> fallback display
         thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:12px" }));
       }
       card.appendChild(thumbWrap);
 
-      // info
       const info = create("div", { style: "flex:1;min-width:0" });
       const title = create("div", { text: `Media #${idx+1}`, style: "font-weight:700;color:#E2E8F0;margin-bottom:6px" });
       info.appendChild(title);
 
-      const mediaUrl = detectMediaUrl(it) || "";
       const typeText = (it.isVideo || /mp4|video/.test(mediaUrl)) ? "video" : "image";
       const meta = create("div", { text: `${typeText} • ${mediaUrl}`, style: "font-size:12px;color:#CBD5E0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" });
       info.appendChild(meta);
@@ -167,7 +166,6 @@
     });
   }
 
-  // small lightbox
   function showLightbox(url, type) {
     if (!url) return alert("No media URL");
     const overlay = create("div", {
@@ -248,7 +246,6 @@
       }
     });
 
-    // clear button(s)
     const clearBtn = Array.from(document.querySelectorAll("button,input[type=button]")).find(b => /hapus|clear|reset/i.test((b.textContent||b.value||"").toLowerCase()));
     if (clearBtn) {
       clearBtn.addEventListener("click", (e) => {
