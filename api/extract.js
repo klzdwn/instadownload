@@ -1,4 +1,4 @@
-// /api/extract.js — Instagram OEmbed + Media JSON extractor (WORKING 2025)
+// /api/extract.js — FINAL FIX (WORKING 2025) Instagram JSON Extractor
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -6,85 +6,90 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
+  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
   try {
     const body = typeof req.body === "object" ? req.body : JSON.parse(req.body || "{}");
-    const url = body?.url?.trim();
+    const url = body.url;
     if (!url) return res.status(400).json({ error: "Missing url" });
 
-    // 1) Get IG OEmbed metadata
-    const oembedURL = `https://www.instagram.com/oembed/?url=${encodeURIComponent(url)}`;
-
-    const meta = await fetch(oembedURL, {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json"
+    // ---- 1. Fetch OEmbed
+    const oembed = await fetch(
+      `https://www.instagram.com/oembed/?url=${encodeURIComponent(url)}`,
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+          "Accept": "application/json"
+        }
       }
-    });
+    );
 
-    if (!meta.ok) {
-      return res.status(400).json({ error: "OEmbed failed", code: meta.status });
+    if (!oembed.ok) {
+      return res.status(400).json({ error: "OEmbed error", code: oembed.status });
     }
 
-    const info = await meta.json();
+    const meta = await oembed.json();
 
-    // Extract shortcode from OEmbed
-    const match = info.thumbnail_url.match(/\/([A-Za-z0-9_-]+)_n/);
-    let shortcode = null;
+    // Ambil shortcode dari URL asli
+    const match = url.match(/\/(p|reel|tv)\/([^\/]+)/i);
+    if (!match) return res.status(400).json({ error: "Cannot extract shortcode" });
+    const shortcode = match[2];
 
-    if (match && match[1]) {
-      shortcode = info.thumbnail_url.split("/")[4]; // reliable
-    } else {
-      // fallback: parse from original URL
-      const m2 = url.match(/\/(p|reel|tv)\/([^\/]+)/i);
-      if (m2) shortcode = m2[2];
-    }
-
-    if (!shortcode) {
-      return res.status(400).json({ error: "Could not extract shortcode." });
-    }
-
-    // 2) Fetch real media JSON from IG V1 endpoint
+    // ---- 2. Fetch real JSON media
     const apiURL = `https://www.instagram.com/p/${shortcode}/?__a=1&__d=dis`;
 
-    const igDataRes = await fetch(apiURL, {
+    const ig = await fetch(apiURL, {
       headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/json",
+        "Referer": "https://www.instagram.com/",
+        "Cookie": "ig_did=123; csrftoken=missing; mid=Yzk; ds_user_id=0;",
+        "sec-ch-ua": '"Chromium";v="112", "Not-A.Brand";v="99"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"'
       }
     });
 
-    if (!igDataRes.ok) {
-      return res.status(400).json({ error: "Media JSON request failed", status: igDataRes.status });
+    const text = await ig.text();
+
+    // If Instagram returned HTML instead of JSON
+    if (text.startsWith("<")) {
+      return res.status(400).json({
+        error: "IG returned HTML (blocked).",
+        snippet: text.slice(0, 500)
+      });
     }
 
-    const igJSON = await igDataRes.json();
-
-    // Locate media node
-    const media = igJSON.items?.[0] || igJSON.graphql?.shortcode_media;
-
-    if (!media) {
-      return res.status(200).json({ data: [] });
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return res.status(400).json({
+        error: "Invalid JSON from Instagram",
+        snippet: text.slice(0, 500)
+      });
     }
 
-    const items = [];
+    const media = json.items?.[0] || json.graphql?.shortcode_media;
+    if (!media) return res.status(200).json({ data: [] });
 
-    // Carousel
+    const out = [];
+
+    // multiple media
     if (media.carousel_media) {
       for (let m of media.carousel_media) {
         const isVideo = m.media_type === 2;
-        items.push({
-          thumb: m.image_versions2?.candidates?.[0]?.url || null,
+        out.push({
+          thumb: m.image_versions2?.candidates?.[0]?.url,
           media: isVideo ? m.video_versions?.[0]?.url : m.image_versions2?.candidates?.[0]?.url,
           isVideo
         });
       }
     } else {
-      // Single media
+      // single media
       const isVideo = media.media_type === 2;
-      items.push({
-        thumb: media.image_versions2?.candidates?.[0]?.url || null,
+      out.push({
+        thumb: media.image_versions2?.candidates?.[0]?.url,
         media: isVideo ? media.video_versions?.[0]?.url : media.image_versions2?.candidates?.[0]?.url,
         isVideo
       });
@@ -92,7 +97,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       status: 200,
-      data: items
+      data: out
     });
 
   } catch (e) {
