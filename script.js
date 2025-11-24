@@ -9,13 +9,27 @@
       if (k === "text") e.textContent = v;
       else if (k === "html") e.innerHTML = v;
       else if (k === "style") e.style.cssText = v;
+      else if (k === "class") e.className = v;
       else e.setAttribute(k, v);
     });
     children.forEach(c => e.appendChild(c));
     return e;
   };
 
-  // try find input + button(s) in the page
+  // tries to detect thumbnail fields in API objects
+  function detectThumb(item) {
+    if (!item) return null;
+    // common keys used by API responses
+    return item.thumb || item.thumbnail || item.preview || item.poster || item.poster_url || item.thumb_url || null;
+  }
+
+  function detectMediaUrl(item) {
+    if (!item) return "";
+    if (typeof item === "string") return item;
+    return item.media || item.url || item.video || item.src || (Array.isArray(item.urls) && item.urls[0]) || "";
+  }
+
+  // find input + button(s) and where to render results
   function findControls() {
     const input =
       el('input[type="url"]') ||
@@ -23,16 +37,13 @@
       el('input[name="url"]') ||
       document.querySelector("input");
 
-    // prefer a button that contains "Cari" or "search" text
     const buttons = Array.from(document.querySelectorAll("button,input[type=button],input[type=submit]"));
     let searchBtn = buttons.find(b => /cari|search|find|download/i.test((b.textContent || b.value || "").trim()));
-    if (!searchBtn) searchBtn = buttons[0] || null;
+    if (!searchBtn) searchBtn = el("#btnFetch") || buttons[0] || null;
 
-    // container to render result (try to use existing card-like area)
-    let resultContainer = el("#ig-result") || el(".result") || el(".results") || null;
+    let resultContainer = el("#results") || el(".results") || el("#ig-result");
     if (!resultContainer) {
-      // create a container under the input
-      resultContainer = create("div", { id: "ig-result", style: "margin-top:18px;max-width:840px;" });
+      resultContainer = create("div", { id: "results", style: "margin-top:18px;max-width:840px;" });
       if (input && input.parentNode) input.parentNode.insertBefore(resultContainer, input.nextSibling);
       else document.body.appendChild(resultContainer);
     }
@@ -42,83 +53,60 @@
 
   // render helpers
   function clearResult(container) {
+    if (!container) return;
     container.innerHTML = "";
   }
 
   function showMessage(container, text, type = "info") {
     const colors = { info: "#2D3748", success: "#2F855A", error: "#E53E3E" };
+    const bg = colors[type] || colors.info;
     const msg = create("div", {
       class: "ig-msg",
-      style: `padding:8px 12px;border-radius:8px;background:${colors[type]};color:#fff;margin-bottom:12px;`
+      style: `padding:10px 12px;border-radius:8px;background:${bg};color:#fff;margin-bottom:12px;`
     });
     msg.textContent = text;
     container.appendChild(msg);
     return msg;
   }
 
-  function detectThumb(item) {
-    // common keys used by API responses
-    return item.thumb || item.thumbnail || item.preview || item.poster || item.poster_url || null;
-  }
-
-  function detectMediaUrl(item) {
-    if (!item) return "";
-    if (item.media && typeof item.media === "string") return item.media;
-    if (item.url && typeof item.url === "string") return item.url;
-    if (item.video && typeof item.video === "string") return item.video;
-    if (item.src && typeof item.src === "string") return item.src;
-    if (Array.isArray(item.urls) && item.urls[0]) return item.urls[0];
-    return "";
-  }
-
-  function renderMediaList(container, data) {
+  function renderMediaList(container, json) {
     clearResult(container);
-    const payload = data && data.data ? data.data : data; // support wrapped vs raw
+    const payload = (json && json.data) ? json.data : json;
 
-    // show basic status
     const header = create("div", { style: "color:#9AE6B4;margin-bottom:8px;font-weight:600" });
     header.textContent = "Sukses — lihat hasil di bawah";
     container.appendChild(header);
 
-    // where media items might be (try common shapes)
+    // find items array in response
     let items = [];
-    if (payload && Array.isArray(payload.data)) items = payload.data;
-    else if (payload && Array.isArray(payload)) items = payload;
-    else if (payload && payload.data && Array.isArray(payload.data)) items = payload.data;
+    if (Array.isArray(payload)) items = payload;
+    else if (payload && Array.isArray(payload.data)) items = payload.data;
+    else if (payload && Array.isArray(payload.items)) items = payload.items;
+    else if (payload && payload.data && payload.data.data && Array.isArray(payload.data.data)) items = payload.data.data;
 
-    if (!items.length) {
+    if (!items || !items.length) {
       showMessage(container, "Tidak ada media ditemukan pada response.", "error");
       return;
     }
 
     items.forEach((it, idx) => {
-      const card = create("div", {
-        class: "ig-card",
-        style: "background:rgba(255,255,255,0.03);padding:14px;border-radius:12px;margin-bottom:12px;display:flex;gap:12px;align-items:center;"
-      });
+      const card = create("div", { style: "background:rgba(255,255,255,0.03);padding:14px;border-radius:12px;margin-bottom:12px;display:flex;gap:12px;align-items:center;" });
 
-      // thumbnail (if exists)
+      // thumbnail
       const thumbWrap = create("div", { style: "width:96px;height:96px;flex:0 0 96px;border-radius:8px;overflow:hidden;background:#061018;display:flex;align-items:center;justify-content:center" });
-      const thumb = detectThumb(it);
-      if (thumb) {
-        // route thumbnail through your proxy if you have one (optional)
-        const proxiedThumb = (function (url) {
-          // if you have /api/proxy-thumb prefer it; otherwise use url directly
-          try {
-            if (!url) return "";
-            // keep direct url by default; if you want to proxy, return `/api/proxy-thumb?url=` + encodeURIComponent(url)
-            return url;
-          } catch (e) { return url; }
-        })(thumb);
-
-        const img = create("img", { src: proxiedThumb, style: "width:100%;height:100%;object-fit:cover;display:block" });
+      const thumbSrc = detectThumb(it);
+      if (thumbSrc) {
+        // proxy through server to avoid IG CDN blocking
+        const proxied = `/api/thumb?url=${encodeURIComponent(thumbSrc)}`;
+        const img = create("img", { src: proxied, style: "width:100%;height:100%;object-fit:cover;display:block" });
+        // fallback if image fails to load
         img.onerror = () => {
           thumbWrap.innerHTML = "";
-          thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:12px" }));
+          thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:13px" }));
         };
         thumbWrap.appendChild(img);
       } else {
-        thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:12px" }));
+        thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:13px" }));
       }
       card.appendChild(thumbWrap);
 
@@ -133,25 +121,26 @@
       info.appendChild(meta);
 
       // buttons row
-      const row = create("div", { style: "margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" });
+      const row = create("div", { style: "margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" });
       const btnPreview = create("button", { text: "Preview", style: "padding:8px 12px;border-radius:8px;background:#1A202C;color:#fff;border:none;cursor:pointer" });
+      const btnDownload = create("a", { text: "Download", href: mediaUrl || "#", style: "padding:8px 12px;border-radius:8px;background:#6B46C1;color:#fff;text-decoration:none;display:inline-block" });
+      const btnOpen = create("a", { text: "Open link", href: mediaUrl || "#", target: "_blank", style: "padding:8px 12px;border-radius:8px;background:transparent;color:#63B3ED;border:1px solid rgba(255,255,255,0.06);text-decoration:none;display:inline-block" });
 
-      // Download: ALWAYS go through /api/download so backend can force attachment header
-      const btnDownloadHref = "/api/download?url=" + encodeURIComponent(mediaUrl || "");
-      const btnDownload = create("a", {
-        text: "Download",
-        href: btnDownloadHref,
-        download: "",
-        style: "padding:8px 14px;border-radius:10px;background:#6B46C1;color:#fff;text-decoration:none;display:inline-block"
-      });
-
-      // Open link (still available if user wants)
-      const btnOpen = create("a", {
-        text: "Open link",
-        href: mediaUrl || "#",
-        target: "_blank",
-        style: "padding:8px 12px;border-radius:8px;background:transparent;color:#63B3ED;border:1px solid rgba(255,255,255,0.06);text-decoration:none;display:inline-block"
-      });
+      // if download link is same-origin and safe, add download attribute
+      try {
+        if (mediaUrl && mediaUrl.startsWith(window.location.origin)) {
+          btnDownload.setAttribute("download", "");
+        } else {
+          // for cross-origin we just open link in new tab when clicked
+          btnDownload.addEventListener("click", (e) => {
+            e.preventDefault();
+            if (!mediaUrl) return alert("No media URL");
+            window.open(mediaUrl, "_blank");
+          });
+        }
+      } catch (e) {
+        // ignore
+      }
 
       // preview action (open lightbox)
       btnPreview.addEventListener("click", () => {
@@ -220,7 +209,6 @@
           body: JSON.stringify({ url: rawUrl })
         });
 
-        // try parse
         const txt = await res.text();
         let json;
         try {
@@ -233,7 +221,6 @@
           return;
         }
 
-        // if error returned
         if (res.status >= 400) {
           clearResult(resultContainer);
           const msg = json && (json.error || json.detail) ? (json.error || json.detail) : `Server responded ${res.status}`;
@@ -255,8 +242,10 @@
       }
     });
 
-    // optional: clear button support (if present)
-    const clearBtn = Array.from(document.querySelectorAll("button,input[type=button]")).find(b => /hapus|clear|reset/i.test((b.textContent||b.value||"").toLowerCase()));
+    // optional: clear button support (detect button by text or id)
+    const clearBtn = Array.from(document.querySelectorAll("button,input[type=button]"))
+      .find(b => /hapus|clear|reset/i.test((b.textContent || b.value || "").trim()) || b.id === "btnClear");
+
     if (clearBtn) {
       clearBtn.addEventListener("click", (e) => {
         e.preventDefault();
