@@ -171,97 +171,120 @@ function renderMediaList(container, data) {
       // provider-specific boxes
       it.images && it.images[0] && (tryStr(it.images[0].url) || tryStr(it.images[0].src)),
       it.urls && it.urls[0] && tryStr(it.urls[0]),
-      // sometimes media is a string url (video or image)
-      tryStr(it.media) || tryStr(it.url) || tryStr(it.video) || tryStr(it.src)
-    ].filter(Boolean);
+function renderMediaList(container, data) {
+  container.innerHTML = "";
 
-    // if first candidate is video (mp4) return as video indicator
-    if (candidates.length) {
-      return candidates[0];
-    }
-    return null;
+  const header = create("div", {
+    style: "color:#4ade80;font-weight:600;margin-bottom:12px;background:#065f46;padding:10px 14px;border-radius:10px;text-align:center;"
+  });
+  header.textContent = "Sukses — lihat hasil di bawah";
+  container.appendChild(header);
+
+  let items = [];
+  const payload = data?.data ?? data;
+
+  if (Array.isArray(payload?.data)) items = payload.data;
+  else if (Array.isArray(payload)) items = payload;
+  else if (Array.isArray(payload?.medias)) items = payload.medias;
+
+  if (!items.length) {
+    const no = create("div", { text: "Tidak ada media ditemukan.", style: "color:#f87171" });
+    container.appendChild(no);
+    return;
   }
 
   items.forEach((it, idx) => {
-    const card = document.createElement("div");
-    card.style = "display:flex;gap:14px;background:#0f1720;padding:14px;border-radius:12px;margin-bottom:16px;align-items:center;";
+    const card = create("div", {
+      style:
+        "background:#111827;border-radius:14px;padding:14px;margin-bottom:16px;display:flex;gap:16px;align-items:flex-start;"
+    });
 
-    // pick URL for actual media
-    const mediaUrl = (it.media || it.url || it.video || (it.urls && it.urls[0]) || "") + "";
-    const thumbUrl = pickThumb(it);
+    const thumbUrl =
+      it.thumb ||
+      it.thumbnail ||
+      it.preview ||
+      (it.image && typeof it.image === "string" ? it.image : null) ||
+      (it.media && typeof it.media === "string" && it.media.endsWith(".jpg") ? it.media : null);
 
-    // left thumbnail area
-    const imgWrap = document.createElement("div");
-    imgWrap.style = "width:96px;height:96px;border-radius:8px;overflow:hidden;background:#111;flex:0 0 96px;display:flex;align-items:center;justify-content:center;";
+    const imgWrap = create("div", {
+      style:
+        "width:110px;height:110px;flex:0 0 110px;background:#0f172a;border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;"
+    });
 
-    // If thumb is a video (ends with mp4 OR contains 'video'), use a <video> element as preview
-    const isVideoUrl = (u) => !!(u && /(\.mp4|\/video|content).*mp4/i.test(u));
-    if (thumbUrl && isVideoUrl(thumbUrl)) {
-      const v = document.createElement("video");
-      v.src = thumbUrl;
-      v.muted = true;
-      v.loop = true;
-      v.autoplay = true;
-      v.playsInline = true;
-      v.style = "width:100%;height:100%;object-fit:cover;display:block";
-      imgWrap.appendChild(v);
-    } else if (thumbUrl) {
-      const img = document.createElement("img");
-      img.src = thumbUrl;
-      img.style = "width:100%;height:100%;object-fit:cover;display:block";
-      // handle load/error (if 403/401 etc)
-      img.addEventListener("error", () => {
-        // fallback: replace with simple label
-        imgWrap.innerHTML = "";
-        const no = document.createElement("div");
-        no.textContent = "NO IMG";
-        no.style = "color:#999;font-size:12px";
-        imgWrap.appendChild(no);
-      });
-      imgWrap.appendChild(img);
+    if (thumbUrl) {
+      imgWrap.appendChild(
+        create("img", {
+          src: thumbUrl,
+          style: "width:100%;height:100%;object-fit:cover;border-radius:10px;"
+        })
+      );
     } else {
-      const no = document.createElement("div");
-      no.textContent = (it.isVideo || /mp4|video/i.test(mediaUrl)) ? "VIDEO" : "IMAGE";
-      no.style = "color:#999;font-size:12px";
-      imgWrap.appendChild(no);
+      imgWrap.appendChild(
+        create("div", {
+          text: "NO THUMB",
+          style: "font-size:12px;color:#94a3b8"
+        })
+      );
     }
 
     card.appendChild(imgWrap);
 
-    // info column
-    const info = document.createElement("div");
-    info.style = "flex:1;min-width:0";
+    const info = create("div", { style: "flex:1;" });
 
-    const title = document.createElement("div");
-    title.textContent = `Media #${idx + 1}`;
-    title.style = "font-size:18px;font-weight:600;margin-bottom:4px;color:#fff";
-    info.appendChild(title);
+    info.appendChild(
+      create("div", {
+        text: `Media #${idx + 1}`,
+        style: "font-size:18px;font-weight:600;margin-bottom:6px;color:#e2e8f0;"
+      })
+    );
 
-    const meta = document.createElement("div");
-    const typeText = (it.isVideo || /mp4|video/i.test(mediaUrl)) ? "video" : "image";
-    meta.textContent = `${typeText} • ${mediaUrl}`;
-    meta.style = "font-size:12px;color:#a0aec0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:8px;";
-    info.appendChild(meta);
+    const mediaUrl =
+      it.media ||
+      it.url ||
+      it.video ||
+      it.src ||
+      (Array.isArray(it.urls) ? it.urls[0] : null) ||
+      "";
 
-    const row = document.createElement("div");
-    row.style = "display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;";
+    const typeText =
+      it.isVideo || /\.mp4/i.test(mediaUrl) ? "video" : "image";
 
-    const btnPreview = document.createElement("button");
-    btnPreview.textContent = "Preview";
-    btnPreview.style = "padding:6px 12px;border-radius:8px;background:#1A202C;color:#fff;border:0;cursor:pointer";
-    btnPreview.addEventListener("click", () => showLightbox(mediaUrl, typeText));
+    info.appendChild(
+      create("div", {
+        text: `${typeText} • ${mediaUrl}`,
+        style: "font-size:12px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:10px;"
+      })
+    );
 
-    const btnDownload = document.createElement("a");
-    btnDownload.textContent = "Download";
-    btnDownload.href = mediaUrl || "#";
-    btnDownload.setAttribute("download", "media");
-    btnDownload.style = "padding:6px 12px;border-radius:8px;background:#7b61ff;color:#fff;text-decoration:none;display:inline-block";
+    const row = create("div", {
+      style: "display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;"
+    });
 
-    const btnOpen = document.createElement("a");
-    btnOpen.textContent = "Open link";
-    btnOpen.href = mediaUrl || "#";
-    btnOpen.target = "_blank";
-    btnOpen.style = "padding:6px 12px;border-radius:8px;border:1px solid #444;color:#63b3ed;text-decoration:none;display:inline-block";
+    const btnPreview = create("button", {
+      text: "Preview",
+      style:
+        "padding:8px 14px;border-radius:10px;border:none;background:#1f2937;color:#fff;cursor:pointer;"
+    });
+
+    btnPreview.addEventListener("click", () =>
+      showLightbox(mediaUrl, typeText)
+    );
+
+    const btnDownload = create("a", {
+      text: "Download",
+      href: mediaUrl,
+      download: "",
+      style:
+        "padding:8px 14px;border-radius:10px;background:#7c3aed;color:#fff;text-decoration:none;"
+    });
+
+    const btnOpen = create("a", {
+      text: "Open link",
+      href: mediaUrl,
+      target: "_blank",
+      style:
+        "padding:8px 14px;border-radius:10px;color:#38bdf8;border:1px solid #334155;text-decoration:none;"
+    });
 
     row.appendChild(btnPreview);
     row.appendChild(btnDownload);
