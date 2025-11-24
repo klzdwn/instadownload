@@ -158,12 +158,12 @@ export default async function handler(req, res) {
 
     // if still no JSON -> return helpful error + snippet
     if (!igJson) {
-      return res.status(502).json({
-        error: "Failed to fetch JSON from Instagram (blocked or HTML returned).",
-        detail: "Tried direct IG endpoints and RapidAPI (if configured). See snippet for debug.",
-        snippet: lastHtmlSnippet || null
-      });
-    }
+  return res.status(200).json({
+    status: "NO_JSON",
+    html: lastHtmlSnippet || "(empty)",
+    message: "Instagram returned non-JSON page."
+  });
+}
 
     // --- normalize/parse igJson to array of media items ---
     // Many shapes possible depending on source; handle common ones.
