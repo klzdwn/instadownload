@@ -1,27 +1,22 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IG Downloader — Free</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <title>IG Downloader</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <main class="wrap">
+    <h1>Instagram Downloader</h1>
+    <p class="sub">Tempel link Instagram → Tekan Download</p>
 
-<div class="container">
-
-  <h1>IG Downloader — Free</h1>
-  <p>Paste any Instagram link below:</p>
-
-  <div class="input-box">
-    <input id="igUrl" type="text" placeholder="https://www.instagram.com/p/...">
+    <input type="text" id="url" placeholder="https://www.instagram.com/reel/...">
     <button id="btnFetch">Download</button>
-  </div>
+    <button id="btnClear">Hapus</button>
 
-  <div id="result"></div>
+    <div id="results"></div>
+  </main>
 
-</div>
-
-<script src="script.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
