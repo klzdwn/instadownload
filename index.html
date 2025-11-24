@@ -1,216 +1,32 @@
 <!doctype html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>IG Downloader — Test</title>
-  <style>
-    :root{
-      --bg:#0b1117; --card:#0f1720; --muted:#9aa4b2; --accent1:#6b7cff; --accent2:#8b4dff;
-      --text:#e6eef8; --danger:#ff6b6b; --glass: rgba(255,255,255,0.03);
-    }
-    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;background:linear-gradient(180deg,#07101a 0%, #051018 100%);color:var(--text)}
-    .wrap{max-width:760px;margin:36px auto;padding:20px}
-    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding:20px;border-radius:12px;box-shadow:0 6px 30px rgba(2,6,12,0.6);}
-    h1{margin:0 0 8px;font-size:28px}
-    p.lead{color:var(--muted);margin:0 0 16px}
-    .row{display:flex;gap:8px;align-items:center;margin-bottom:12px}
-    input[type=text]{flex:1;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text);outline:none}
-    button{padding:10px 14px;border-radius:10px;border:0;cursor:pointer;background:linear-gradient(90deg,var(--accent1),var(--accent2));color:white;font-weight:600}
-    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--text)}
-    .info{color:var(--muted);font-size:14px;margin-bottom:12px}
-    .err{color:var(--danger);margin:10px 0}
-    pre.debug{background:var(--card);padding:12px;border-radius:8px;color:var(--muted);overflow:auto;max-height:260px}
-    .media-card{display:flex;gap:12px;align-items:center;background:rgba(255,255,255,0.02);padding:12px;border-radius:10px;margin-top:12px}
-    .thumb{width:120px;height:70px;background:#031018;border-radius:8px;object-fit:cover}
-    .meta{flex:1;color:var(--muted);font-size:13px}
-    .meta b{color:var(--text)}
-    .controls{display:flex;gap:8px;margin-top:8px}
-    .small{padding:8px 10px;font-size:13px;border-radius:8px}
-    .link{color:var(--accent1);text-decoration:underline;cursor:pointer}
-    footer{margin-top:22px;color:var(--muted);font-size:13px}
-    @media(max-width:520px){.thumb{width:84px;height:64px}}
-  </style>
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>IG Downloader — Test</h1>
-      <p class="lead">Tempel link posting / reel / foto publik Instagram lalu tekan "Cari media".</p>
+  <main class="wrap">
+    <h1>IG Downloader — Test</h1>
 
-      <div class="row">
-        <input id="url" type="text" placeholder="https://www.instagram.com/reel/..." value="">
-        <button id="btnSearch">Cari media</button>
-        <button id="btnClear" class="ghost">Hapus</button>
+    <p class="subtitle">Tempel link posting / reel / foto publik Instagram lalu tekan <strong>Cari media</strong>.</p>
+
+    <div class="card">
+      <input id="url" placeholder="https://www.instagram.com/reel/..." />
+      <div class="buttons">
+        <button id="btnFetch">Cari media</button>
+        <button id="btnClear">Hapus</button>
       </div>
 
-      <div id="status" class="info">Jika error, lihat cuplikan response di bawah untuk debug.</div>
-      <div id="error" class="err" style="display:none"></div>
-
-      <div id="results"></div>
-
+      <div id="status" class="status"></div>
+      <div id="results" class="results" aria-live="polite"></div>
       <pre id="debug" class="debug" style="display:none"></pre>
-      <footer>Pastikan backend <code>/api/extract</code> sudah terpasang & env RapidAPI benar.</footer>
     </div>
-  </div>
 
-<script>
-(async ()=> {
-  const urlEl = document.getElementById('url');
-  const btnSearch = document.getElementById('btnSearch');
-  const btnClear = document.getElementById('btnClear');
-  const status = document.getElementById('status');
-  const errEl = document.getElementById('error');
-  const results = document.getElementById('results');
-  const debug = document.getElementById('debug');
+    <p class="note">Pastikan backend <code>/api/extract</code> terpasang & env RapidAPI benar.</p>
+  </main>
 
-  function showError(msg, debugText){
-    errEl.style.display = 'block';
-    errEl.textContent = msg;
-    if(debugText){
-      debug.style.display = 'block';
-      debug.textContent = debugText;
-    }
-  }
-
-  function clearMessages(){
-    errEl.style.display = 'none'; errEl.textContent = '';
-    debug.style.display = 'none'; debug.textContent = '';
-    results.innerHTML = '';
-  }
-
-  btnClear.addEventListener('click', ()=>{ urlEl.value=''; clearMessages(); status.textContent='Jika error, lihat cuplikan response di bawah untuk debug.' });
-
-  btnSearch.addEventListener('click', async ()=>{
-    clearMessages();
-    const url = (urlEl.value || '').trim();
-    if(!url){ showError('Masukkan URL Instagram.'); return; }
-
-    status.textContent = 'Loading…';
-    btnSearch.disabled = true;
-
-    try {
-      const resp = await fetch('/api/extract', {
-        method: 'POST',
-        headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ url })
-      });
-
-      const text = await resp.text(); // always read text first
-      let json = null;
-      try { json = JSON.parse(text); } catch(e){ /* not json */ }
-
-      if(!json){
-        // upstream likely returned HTML or error - show snippet
-        showError('Upstream tidak mengembalikan JSON. Cek logs.', text.slice(0,2000));
-        status.textContent = 'Upstream tidak mengembalikan JSON. Cek logs.';
-        return;
-      }
-
-      // if error object from our handler:
-      if(resp.status >= 400){
-        const msg = json.error || JSON.stringify(json);
-        showError('Error: ' + msg, JSON.stringify(json, null, 2));
-        status.textContent = 'Gagal — lihat debug';
-        return;
-      }
-
-      // success -> render media array if exists
-      const data = json.data || json;
-      // provider returns { data: { data: [ {thumb,media,isVideo} ] } } in many cases
-      let list = [];
-      if(Array.isArray(data)) list = data;
-      else if (data && Array.isArray(data.data)) list = data.data;
-      else if (data && Array.isArray(data.items)) list = data.items;
-      else if (data && data.data && Array.isArray(data.data.data)) list = data.data.data;
-
-      if(!list || list.length === 0){
-        status.textContent = 'No media found';
-        debug.style.display='block';
-        debug.textContent = JSON.stringify(json, null, 2);
-        return;
-      }
-
-      status.textContent = 'Sukses — lihat hasil di bawah';
-      // render each media
-      results.innerHTML = '';
-      list.forEach((m, idx)=>{
-        const wrap = document.createElement('div');
-        wrap.className = 'media-card';
-
-        const thumb = document.createElement('img');
-        thumb.className = 'thumb';
-        thumb.alt = 'thumb';
-        thumb.src = m.thumb || m.thumbnail || (m.media && m.media.replace(/(\.mp4|\.webm).*/,'_thumb.jpg')) || '';
-
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        const title = document.createElement('div');
-        title.innerHTML = `<b>Media #${idx+1}</b>`;
-        const line = document.createElement('div');
-        const type = m.isVideo ? 'video' : 'image';
-        line.textContent = `${type} • ${m.media || m.url || m.src || ''}`;
-        const controls = document.createElement('div');
-        controls.className = 'controls';
-
-        const btnPreview = document.createElement('button');
-        btnPreview.className = 'small ghost';
-        btnPreview.textContent = 'Preview';
-        btnPreview.onclick = ()=> {
-          const w = window.open(m.media || m.url || '', '_blank');
-          if(!w) alert('Popup blocked — open link manually: ' + (m.media || m.url || ''));
-        };
-
-        const btnDownload = document.createElement('button');
-        btnDownload.className = 'small';
-        btnDownload.textContent = 'Download';
-        btnDownload.onclick = ()=>{
-          const a = document.createElement('a');
-          a.href = m.media || m.url || '';
-          a.download = '';
-          a.target = '_blank';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-        };
-
-        const btnOpen = document.createElement('a');
-        btnOpen.className = 'small ghost link';
-        btnOpen.textContent = 'Open link';
-        btnOpen.href = m.media || m.url || '';
-        btnOpen.target = '_blank';
-        btnOpen.style.display = 'inline-block';
-        btnOpen.style.padding = '8px 10px';
-        btnOpen.style.borderRadius = '8px';
-        btnOpen.style.textDecoration = 'none';
-        btnOpen.style.background = 'transparent';
-        btnOpen.style.color = 'var(--accent1)';
-
-        controls.appendChild(btnPreview);
-        controls.appendChild(btnDownload);
-        controls.appendChild(btnOpen);
-
-        meta.appendChild(title);
-        meta.appendChild(line);
-        meta.appendChild(controls);
-
-        wrap.appendChild(thumb);
-        wrap.appendChild(meta);
-        results.appendChild(wrap);
-      });
-
-    } catch (err) {
-      console.error(err);
-      showError('Request failed: ' + (err && err.message ? err.message : String(err)));
-    } finally {
-      btnSearch.disabled = false;
-    }
-  });
-
-  // small UX: hit Enter to search
-  urlEl.addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ btnSearch.click(); } });
-
-})();
-</script>
+  <script src="/script.js"></script>
 </body>
 </html>
