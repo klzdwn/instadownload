@@ -1,101 +1,96 @@
-// api/extract.js
-// Improved Vercel serverless handler with better error logging and safe responses.
+// script.js - frontend
+const elUrl = document.getElementById('url');
+const btn = document.getElementById('go');
+const clearBtn = document.getElementById('clear');
+const statusEl = document.getElementById('status');
+const errEl = document.getElementById('error');
+const resultsEl = document.getElementById('results');
+const snippetEl = document.getElementById('snippet');
 
-export default async function handler(req, res) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+function showStatus(msg=''){ statusEl.style.display = msg ? 'block' : 'none'; statusEl.textContent = msg; }
+function showError(msg=''){ errEl.style.display = msg ? 'block' : 'none'; errEl.textContent = msg; }
+function showSnippet(txt){ snippetEl.style.display = txt ? 'block' : 'none'; snippetEl.textContent = txt || ''; }
+function showResults(html){ resultsEl.style.display = html ? 'block' : 'none'; resultsEl.innerHTML = html || ''; }
 
-  if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed, use POST" });
+clearBtn.addEventListener('click', () => {
+  elUrl.value = '';
+  showResults('');
+  showError('');
+  showStatus('');
+  showSnippet('');
+});
+
+btn.addEventListener('click', async () => {
+  showError(''); showSnippet(''); showResults('');
+  const url = elUrl.value.trim();
+  if (!url) { showError('Masukkan URL Instagram terlebih dahulu'); return; }
+  showStatus('Memproses...');
 
   try {
-    // robust body parsing for different runtimes
-    let body = req.body;
-    if (!body || (typeof body === "object" && Object.keys(body).length === 0)) {
-      // try to read raw stream (some runtimes)
-      if (req.on) {
-        body = await new Promise((resolve) => {
-          let d = "";
-          req.on("data", (c) => (d += c));
-          req.on("end", () => {
-            try { resolve(JSON.parse(d || "{}")); }
-            catch (e) { resolve({}); }
-          });
-        });
-      } else {
-        body = {};
-      }
-    }
-
-    const { url } = body || {};
-    if (!url || typeof url !== "string") {
-      return res.status(400).json({ error: "Missing 'url' in request body" });
-    }
-
-    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-    const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "instagram-downloader-scraper-reels-igtv-posts-stories.p.rapidapi.com";
-
-    if (!RAPIDAPI_KEY) {
-      console.error("Missing RAPIDAPI_KEY env var");
-      return res.status(500).json({ error: "RapidAPI key not configured (RAPIDAPI_KEY)" });
-    }
-
-    const endpoint = `https://${RAPIDAPI_HOST}/scraper?url=${encodeURIComponent(url)}`;
-
-    // timeout
-    const controller = new AbortController();
-    const timeoutMs = 15000;
-    const t = setTimeout(() => controller.abort(), timeoutMs);
-
-    let rapidRes;
-    try {
-      rapidRes = await fetch(endpoint, {
-        method: "GET",
-        headers: {
-          "x-rapidapi-host": RAPIDAPI_HOST,
-          "x-rapidapi-key": RAPIDAPI_KEY,
-          "Accept": "application/json"
-        },
-        signal: controller.signal
-      });
-    } catch (fetchErr) {
-      clearTimeout(t);
-      console.error("Fetch to RapidAPI failed:", fetchErr && fetchErr.message ? fetchErr.message : fetchErr);
-      if (fetchErr.name === "AbortError") {
-        return res.status(504).json({ error: "Upstream timeout" });
-      }
-      return res.status(502).json({ error: "Failed to reach RapidAPI", detail: String(fetchErr.message || fetchErr) });
-    }
-    clearTimeout(t);
-
-    const text = await rapidRes.text().catch(err => {
-      console.error("Failed reading upstream text:", err);
-      return "";
+    const res = await fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ url })
     });
 
-    // try parse JSON
-    try {
-      const data = JSON.parse(text);
-      return res.status(200).json({ status: rapidRes.status, data });
-    } catch (parseErr) {
-      // upstream returned HTML or other non-JSON -> include short snippet for debugging
-      const snippet = text ? text.slice(0, 4000) : "";
-      console.error("Upstream returned non-JSON; status:", rapidRes.status);
-      // Don't leak keys or secrets in response
-      return res.status(502).json({
-        error: "Upstream returned non-JSON response",
-        status: rapidRes.status,
-        // include snippet to debug (short)
-        snippet
-      });
+    const text = await res.text(); // ambil text dulu
+    let json;
+    try { json = JSON.parse(text); } catch(e) {
+      // non-json dari backend -> tampilkan snippet untuk debug
+      showStatus('');
+      showError('Upstream tidak mengembalikan JSON. Cek snippet di bawah.');
+      showSnippet(text.slice(0, 4000));
+      return;
     }
 
+    if (!res.ok) {
+      showStatus('');
+      const msg = json.error || json.message || `Server error (${res.status})`;
+      showError(msg);
+      if (json.snippet) showSnippet(json.snippet);
+      return;
+    }
+
+    showStatus('Sukses — lihat hasil di bawah');
+    showError('');
+
+    // format result: sesuaikan struktur yang dikembalikan server
+    // expected: { status: 200, data: { data: [ { thumb, media, isVideo } ] } }
+    const payload = json.data || json;
+    const items = (payload.data && payload.data.data) || (payload.data) || [];
+
+    if (!items || items.length === 0) {
+      showResults('<div class="meta">Tidak ada media ditemukan.</div>');
+      return;
+    }
+
+    // buat cards
+    let out = '';
+    items.forEach((it, idx) => {
+      const thumb = it.thumb || it.thumbnail || '';
+      const media = it.media || it.url || it.src || '';
+      const isVideo = !!it.isVideo || !!it.is_video || (media && media.endsWith('.mp4'));
+      out += `
+        <div class="media-card">
+          <img class="thumb" src="${thumb || ''}" alt="thumb ${idx+1}" onerror="this.style.display='none'"/>
+          <div class="meta">
+            <div><strong>Media #${idx+1}</strong></div>
+            <div class="meta">${isVideo ? 'video' : 'image'} • <small style="word-break:break-all">${media}</small></div>
+            <div class="btns">
+              ${isVideo ? `<button onclick="window.open('${media}','_blank')">Preview</button>` : `<a href="${media}" target="_blank" rel="noopener">Open</a>`}
+              <a href="${media}" download>Download</a>
+              <a href="${media}" target="_blank" rel="noopener">Open link</a>
+            </div>
+          </div>
+        </div>
+        <hr style="border:none;margin:12px 0;border-top:1px solid rgba(255,255,255,0.04)"/>
+      `;
+    });
+
+    showResults(out);
+
   } catch (err) {
-    // Log stacktrace for debugging in Vercel logs
-    console.error("extract handler top-level error:", err && err.stack ? err.stack : err);
-    // Return a sanitized error message to client
-    return res.status(500).json({ error: "A server error has occurred", code: "FUNCTION_INVOCATION_FAILED" });
+    showStatus('');
+    showError('Gagal menghubungi server: ' + (err.message || err));
   }
-}
+});
