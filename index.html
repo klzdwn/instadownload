@@ -1,50 +1,92 @@
 <!doctype html>
 <html lang="id">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>IG Downloader — Mobile</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>IG Downloader</title>
+<style>
+  :root{--bg:#070617;--card:#0f1220;--accent:linear-gradient(90deg,#4ea8ff,#8b5cf6);}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto; background:var(--bg); color:#fff; margin:0; padding:32px;}
+  .wrap{max-width:720px;margin:0 auto}
+  h1{margin:0 0 18px;font-size:28px}
+  .card{background:var(--card);padding:20px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.6)}
+  input[type=text]{width:100%;padding:12px;border-radius:8px;border:1px solid #222;background:#0b0c12;color:#fff}
+  .row{display:flex;gap:12px;margin-top:12px}
+  button{padding:10px 14px;border-radius:10px;border:0;cursor:pointer;background:var(--accent);color:#fff}
+  .status{margin-top:14px;color:#f88}
+  .preview{margin-top:14px}
+  a.link{display:inline-block;margin-top:8px;color:#9be6ff}
+</style>
 </head>
 <body>
-  <div class="overlay"></div>
-
-  <div class="container">
-    <header>
-      <div class="logo">IG</div>
-      <div>
-        <h1>IG Downloader (Beta)</h1>
-        <p class="lead">Tempel link posting / reel / foto publik Instagram lalu tekan <strong>Download</strong>.</p>
+  <div class="wrap">
+    <h1>IG Downloader (Beta)</h1>
+    <div class="card">
+      <label for="url">Link Instagram (post / reel / p / reel)</label>
+      <input id="url" type="text" placeholder="https://www.instagram.com/reel/..." />
+      <div class="row">
+        <button id="btn">Download</button>
+        <button id="clear">Hapus</button>
       </div>
-    </header>
-
-    <main class="card">
-      <form id="form" onsubmit="return false;">
-        <div class="input-wrap">
-          <input id="url" class="url" type="url" placeholder="https://www.instagram.com/p/SHORTCODE/ atau /reel/..." required />
-        </div>
-
-        <div class="btn-group">
-          <button id="btnDownload" class="btn btn-download">Download</button>
-          <button id="btnClear" class="btn btn-clear" type="button">Hapus</button>
-        </div>
-      </form>
-
-      <div class="helper">Jika error, coba re-load atau paste ulang link.</div>
-
-      <div id="status" class="result" aria-live="polite"></div>
-    </main>
-
-    <section class="section">
-      <h3>Tentang IG Downloader</h3>
-      <p class="helper">Website ringan untuk download media IG publik. Mobile-friendly.</p>
-    </section>
+      <div id="status" class="status"></div>
+      <div id="preview" class="preview"></div>
+    </div>
   </div>
 
-  <a class="fab" href="#" id="fab" aria-label="Bantuan">
-    <img src="https://i.imgur.com/0y0y0y0.png" alt="help">
-  </a>
+<script>
+const btn = document.getElementById('btn');
+const clear = document.getElementById('clear');
+const urlIn = document.getElementById('url');
+const status = document.getElementById('status');
+const preview = document.getElementById('preview');
 
-  <script src="script.js"></script>
+clear.addEventListener('click', ()=>{ urlIn.value=''; status.textContent=''; preview.innerHTML=''; });
+
+btn.addEventListener('click', async ()=>{
+  const url = urlIn.value.trim();
+  status.style.color='#ffd2a8';
+  preview.innerHTML='';
+  if(!url){ status.textContent='Masukkan link Instagram.'; return; }
+  status.textContent='Mencari...';
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/api/extract', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ url })
+    });
+    const json = await resp.json();
+    if(!resp.ok){
+      status.style.color='#ff8a8a';
+      status.textContent = json.error || JSON.stringify(json);
+      btn.disabled=false;
+      return;
+    }
+    // kalau ada found langsung tampil
+    if(json.found){
+      status.style.color='#9ff';
+      status.textContent = 'Media ditemukan.';
+      const f = json.found;
+      if(typeof f === 'string'){
+        const isVideo = /\.(mp4|webm|m3u8)/i.test(f);
+        preview.innerHTML = isVideo
+          ? `<video controls src="${f}" style="max-width:100%;border-radius:8px"></video><br><a class="link" href="${f}" download>Download file</a>`
+          : `<img src="${f}" style="max-width:100%;border-radius:8px"/><br><a class="link" href="${f}" download>Download file</a>`;
+      } else {
+        preview.innerHTML = `<pre style="color:#ddd;max-height:240px;overflow:auto">${JSON.stringify(f,null,2)}</pre>`;
+      }
+    } else {
+      status.style.color='#ff8a8a';
+      status.textContent = json.message || 'Media tidak ditemukan (cek snippet raw).';
+      preview.innerHTML = `<pre style="color:#ddd;max-height:240px;overflow:auto">${JSON.stringify(json.raw ?? json, null, 2)}</pre>`;
+    }
+  } catch (err) {
+    status.style.color='#ff8a8a';
+    status.textContent = 'Network/Server error: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
 </body>
 </html>
