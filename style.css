@@ -159,3 +159,14 @@ a.link { color:#7bd; text-decoration:underline; }
 
 /* small tweaks for accessibility */
 button:focus, .small-btn:focus, #url:focus { outline: 3px solid rgba(123,97,255,0.12); outline-offset:2px; }
+
+//TAMBAHAN//
+/* tiny UI fixes for script.js */
+.media-card{display:flex;gap:12px;background:#0b1116;padding:12px;border-radius:10px;align-items:center}
+.media-thumb{width:96px;height:96px;flex:0 0 96px;border-radius:8px;overflow:hidden;background:#061018;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
+.media-thumb img{display:block}
+.media-thumb-fallback{display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:600}
+.media-info{flex:1;color:var(--muted)}
+.media-actions{display:flex;gap:8px;margin-top:8px}
+.small-btn{padding:8px 12px;border-radius:8px;border:0;background:#111827;color:var(--text);cursor:pointer}
+.ig-msg{font-size:14px}
