@@ -1,49 +1,67 @@
-// api/extract.js (Node / Vercel Serverless)
+// api/extract.js
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  // Allow CORS for your frontend (adjust origin if perlu)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed, use POST" });
+  }
 
   try {
-    const { url } = req.body || {};
-    if (!url || !/^https?:\/\/(www\.)?instagram\.com\//i.test(url)) {
-      return res.status(400).json({ error: 'URL tidak valid' });
+    const body = req.body || (await new Promise(r => {
+      let d = "";
+      req.on("data", c => (d += c));
+      req.on("end", () => r(JSON.parse(d || "{}")));
+    }));
+
+    const { url } = body;
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({ error: "Missing 'url' in request body" });
     }
 
-    const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST;
     const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-    if (!RAPIDAPI_HOST || !RAPIDAPI_KEY) {
-      return res.status(500).json({ error: 'Server not configured (missing RAPIDAPI keys)' });
+    const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "instagram-downloader-scraper-reels-igtv-posts-stories.p.rapidapi.com";
+
+    if (!RAPIDAPI_KEY) {
+      return res.status(500).json({ error: "RapidAPI key not configured (RAPIDAPI_KEY)" });
     }
 
-    // sesuaikan path endpoint kalau API yang kamu pilih berbeda
-    const endpoint = `https://${RAPIDAPI_HOST}/instagram`; // contoh, ganti sesuai docs
-    const params = new URLSearchParams({ url });
+    const endpoint = `https://${RAPIDAPI_HOST}/scraper?url=${encodeURIComponent(url)}`;
 
-    const r = await fetch(`${endpoint}?${params.toString()}`, {
-      method: 'GET',
+    const rapidRes = await fetch(endpoint, {
+      method: "GET",
       headers: {
-        'X-RapidAPI-Key': 4e01fd02f0msh6ef168811796f25p1dd6b2jsn789f2b0853a8,
-        'X-RapidAPI-Host': instagram-downloader-scraper-reels-igtv-posts-stories.p.rapidapi.com,
-        'Accept': 'application/json'
+        "x-rapidapi-host": RAPIDAPI_HOST,
+        "x-rapidapi-key": RAPIDAPI_KEY
       },
-      // jika API butuh content-type / auth tambahan, tambahkan di sini
+      // optional: add a timeout handling if needed
     });
 
-    const text = await r.text();
-    // coba parse json, kalau gagal kirim snippet untuk debugging
+    const text = await rapidRes.text();
+
+    // Try parse JSON; if not JSON return snippet for debugging
+    let data;
     try {
-      const data = JSON.parse(text);
-      // normalisasi: cari media_url / files / video_url dst
-      if (data.media || data.video || data.image || data.url) {
-        return res.status(200).json({ ok: true, data });
-      }
-      // kalau API mengembalikan html/snippet (challenge), kirim info
-      return res.status(200).json({ ok: false, message: 'No media found', raw: data });
-    } catch (e) {
-      // kemungkinan API kembalikan HTML (challenge / blocked)
-      return res.status(502).json({ error: 'Invalid JSON from RapidAPI', snippet: text.slice(0, 2000) });
+      data = JSON.parse(text);
+    } catch (err) {
+      // Return helpful debug response (do NOT leak keys)
+      return res.status(502).json({
+        error: "Upstream returned non-JSON response",
+        status: rapidRes.status,
+        snippet: text.slice(0, 2000) // short snippet to debug structure
+      });
     }
 
+    // Forward the parsed data
+    return res.status(200).json({ status: rapidRes.status, data });
   } catch (err) {
-    return res.status(500).json({ error: 'Server error', details: String(err) });
+    console.error("extract error:", err);
+    return res.status(500).json({ error: "Internal server error", detail: err.message });
   }
 }
