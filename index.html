@@ -1,161 +1,227 @@
+// === index.html === 
 <!doctype html>
-<html lang="id">
+<html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>IG Downloader — Test</title>
-<style>
-  :root{--bg:#0f1720;--card:#0b1220;--muted:#9aa6b2;--accent1:#5b9cff;--accent2:#9b59ff}
-  body{margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#08121a 0,#071018 100%);color:#e6eef6;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:48px}
-  .card{width:100%;max-width:720px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border-radius:12px;padding:24px;box-shadow:0 6px 30px rgba(2,6,23,0.6)}
-  h1{margin:0 0 12px;font-size:22px}
-  .controls{display:flex;gap:8px;margin-bottom:14px}
-  input[type=text]{flex:1;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.02);color:#eaf4ff}
-  button{padding:10px 14px;border-radius:10px;border:0;cursor:pointer;background:linear-gradient(90deg,var(--accent1),var(--accent2));color:#fff}
-  #result{margin-top:18px;color:var(--muted);font-family:monospace;white-space:pre-wrap}
-  .item{margin:14px 0;padding:12px;border-radius:10px;background:rgba(0,0,0,0.25);display:flex;gap:12px;align-items:flex-start}
-  .thumb{width:160px;height:90px;object-fit:cover;border-radius:6px;background:#000}
-  .meta{flex:1}
-  .actions{display:flex;gap:8px;margin-top:8px}
-  .linkbtn{padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.06);color:#fff;border:0;cursor:pointer}
-  .ok{color:#bde8b4}
-  .err{color:#ff9b9b}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IG Downloader — Test</title>
+  <style>
+    :root{--bg:#071018;--card:#0f1720;--muted:#9aa7b2;--accent1:#6ea8ff;--accent2:#9b6bff}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,var(--bg),#02040a);color:#e6eef6}
+    .wrap{max-width:720px;margin:36px auto;padding:20px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));padding:20px;border-radius:14px;box-shadow:0 6px 30px rgba(0,0,0,0.6)}
+    h1{margin:0 0 12px;font-size:22px}
+    .input-row{display:flex;gap:10px;margin:10px 0}
+    input[type=text]{flex:1;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+    button{padding:10px 14px;border-radius:10px;border:none;cursor:pointer;background:linear-gradient(90deg,var(--accent1),var(--accent2));color:#001}
+    .muted{color:var(--muted);font-size:13px}
+    .resp{margin-top:18px}
+    pre.json{background:#03121a;padding:12px;border-radius:10px;overflow:auto;color:#cfe7ff}
+    .media-grid{display:flex;flex-direction:column;gap:12px}
+    .media-card{display:flex;gap:12px;align-items:center;background:rgba(255,255,255,0.02);padding:12px;border-radius:10px}
+    .thumb{width:180px;height:100px;object-fit:cover;border-radius:8px;background:#06121a}
+    .meta{flex:1;color:var(--muted);font-size:13px}
+    .actions{display:flex;gap:8px}
+    .btn-ghost{padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    a.download{color:inherit;text-decoration:none}
+    .error{color:#ff7b7b}
+    @media (max-width:480px){.thumb{width:120px;height:80px}}
+  </style>
 </head>
 <body>
-  <main class="card">
-    <h1>IG Downloader — Test</h1>
-    <div class="controls">
-      <input id="inputUrl" type="text" placeholder="https://www.instagram.com/reel/..." />
-      <button id="btnCari">Cari media</button>
+  <div class="wrap">
+    <div class="card">
+      <h1>IG Downloader — Test</h1>
+      <div class="muted">Tempel link posting / reel / foto publik Instagram lalu tekan <strong>Cari media</strong>.</div>
+      <div class="input-row">
+        <input id="url" type="text" placeholder="https://www.instagram.com/reel/.." />
+        <button id="go">Cari media</button>
+        <button id="clear" class="btn-ghost">Hapus</button>
+      </div>
+      <div id="note" class="muted">Jika error, coba ulang beberapa saat — atau lihat cuplikan response di bawah untuk debug.</div>
+      <div id="out" class="resp"></div>
     </div>
+  </div>  <script>
+    // helper
+    const $ = sel => document.querySelector(sel);
+    const make = (t, props = {}) => {
+      const el = document.createElement(t);
+      Object.entries(props).forEach(([k,v]) => {
+        if(k === 'className') el.className = v;
+        else if(k === 'text') el.textContent = v;
+        else el.setAttribute(k,v);
+      });
+      return el;
+    };
 
-    <div id="status" class="ok">Siap — masukkan link dan klik "Cari media".</div>
-    <div id="result"></div>
-  </main>
+    const out = $('#out');
+    const urlInput = $('#url');
+    const note = $('#note');
 
-<script>
-async function postExtract(url) {
-  const res = await fetch('/api/extract', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ url })
-  });
-  // baca response sebagai text dulu (untuk debug non-json)
-  const txt = await res.text();
-  try {
-    return { ok:true, json: JSON.parse(txt), status: res.status };
-  } catch(e) {
-    return { ok:false, text: txt, status: res.status };
-  }
-}
+    async function search(){
+      out.innerHTML = '';
+      note.textContent = 'Loading...';
+      const url = urlInput.value.trim();
+      if(!url){ note.textContent = 'Masukkan URL Instagram dulu.'; return }
 
-function makeEl(tag, props={}, ...children){
-  const el = document.createElement(tag);
-  Object.assign(el, props);
-  for (const c of children) {
-    if (typeof c === 'string') el.appendChild(document.createTextNode(c));
-    else if (c) el.appendChild(c);
-  }
-  return el;
-}
+      try{
+        const resp = await fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify({ url })
+        });
 
-async function downloadBlob(url, filename='file') {
-  // fetch as blob then trigger download
-  try {
-    const r = await fetch(url);
-    if(!r.ok) throw new Error('Gagal fetch resource: ' + r.status);
-    const b = await r.blob();
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(b);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(()=> URL.revokeObjectURL(link.href), 5000);
-  } catch (err) {
-    alert('Download error: ' + err.message);
-    console.error(err);
-  }
-}
-
-function renderResults(data) {
-  // data expected shape: { status:..., data: { data: [ {thumb, media, isVideo}, ... ] } }
-  const result = document.getElementById('result');
-  result.innerHTML = '';
-  if (!data || !data.data || !Array.isArray(data.data.data)) {
-    result.appendChild(makeEl('div', {}, 'Tidak ada media (cek log backend).'));
-    return;
-  }
-
-  data.data.data.forEach((it, idx) => {
-    const item = makeEl('div', { className:'item' });
-    const thumbSrc = it.thumb || (it.media && it.media[0]) || it.media;
-    const thumb = makeEl('img', { className:'thumb', src: thumbSrc || '' });
-    const meta = makeEl('div', { className: 'meta' });
-    const title = makeEl('div', {}, `Media #${idx+1}`);
-    const info = makeEl('div', { style: 'font-size:13px;color:var(--muted);margin-top:6px' }, (it.isVideo ? 'video' : 'image') + ' • ' + (it.media||''));
-    const actions = makeEl('div', { className:'actions' });
-
-    // Preview (open in new tab)
-    const previewBtn = makeEl('button', { className:'linkbtn' }, 'Preview');
-    previewBtn.addEventListener('click', ()=> {
-      const u = it.media || it.thumb;
-      if (!u) return alert('Tidak ada URL media');
-      window.open(u, '_blank');
-    });
-
-    // Direct download via blob (safer vs cross-origin)
-    const downloadBtn = makeEl('button', { className:'linkbtn' }, 'Download');
-    downloadBtn.addEventListener('click', async ()=> {
-      const u = it.media || it.thumb;
-      if (!u) return alert('Tidak ada URL media');
-      // suggest filename based on index + extension
-      const ext = (u.split('?')[0].split('.').pop() || 'bin').slice(0,6);
-      await downloadBlob(u, `media-${idx+1}.${ext}`);
-    });
-
-    // also add a direct link (target blank)
-    const direct = makeEl('a', { href: it.media || it.thumb || '#', target:'_blank', className:'linkbtn' }, 'Open link');
-
-    actions.appendChild(previewBtn);
-    actions.appendChild(downloadBtn);
-    actions.appendChild(direct);
-
-    meta.appendChild(title);
-    meta.appendChild(info);
-    meta.appendChild(actions);
-
-    item.appendChild(thumb);
-    item.appendChild(meta);
-    result.appendChild(item);
-  });
-}
-
-document.getElementById('btnCari').addEventListener('click', async ()=> {
-  const url = document.getElementById('inputUrl').value.trim();
-  const statusEl = document.getElementById('status');
-  const resultEl = document.getElementById('result');
-  resultEl.innerHTML = '';
-  if (!url) return alert('Masukkan URL Instagram dulu');
-  statusEl.textContent = 'Memproses...';
-  try {
-    const r = await postExtract(url);
-    if (!r.ok) {
-      statusEl.className = 'err';
-      statusEl.textContent = `Upstream non-JSON (status ${r.status}). Lihat cuplikan di bawah.`;
-      resultEl.innerHTML = '<pre style="color:#f8c0c0">'+ (r.text || '').slice(0,2000) +'</pre>';
+        const text = await resp.text();
+        let j;
+        try{ j = JSON.parse(text); } catch(e){
+          // show snippet for debug
+          out.innerHTML = '<pre class="json">Non-JSON from backend:\n'+escapeHtml(text.slice(0,2000))+'</pre>';note.textContent = 'Upstream tidak mengembalikan JSON. Cek logs.';
       return;
     }
-    statusEl.className = 'ok';
-    statusEl.textContent = 'Sukses — lihat hasil di bawah';
-    renderResults(r.json);
-  } catch (err) {
-    statusEl.className = 'err';
-    statusEl.textContent = 'Network error: ' + err.message;
-    resultEl.innerHTML = '<pre style="color:#f8c0c0">'+ err.stack +'</pre>';
+
+    if(resp.status >= 400){
+      out.innerHTML = '<pre class="json">'+JSON.stringify(j, null, 2)+'</pre>';
+      note.textContent = j.error ? j.error : 'Error';
+      return;
+    }
+
+    renderResult(j);
+  }catch(err){
+    note.textContent = 'Network error: '+err.message;
+  }
+}
+
+function escapeHtml(s){ return s.replace(/[&<>]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c])) }
+
+function renderResult(obj){
+  note.textContent = 'Sukses — lihat hasil di bawah';
+  out.innerHTML = '';
+  const data = obj && (obj.data || obj) ;
+  // The RapidAPI used returns { status:200, data: { data:[ ... ] } }
+  let items = [];
+  if(data && data.data && Array.isArray(data.data)) items = data.data;
+  else if(Array.isArray(data)) items = data;
+  else if(data && Array.isArray(data.data)) items = data.data;
+
+  if(!items.length){ out.innerHTML = '<div class="muted">Tidak ada media ditemukan</div>'; return }
+
+  const grid = make('div', { className:'media-grid' });
+  items.forEach((it, idx) => {
+    const card = make('div', { className:'media-card' });
+
+    // choose thumbnail / preview
+    let thumbEl;
+    const mediaUrl = it.media || (Array.isArray(it.media) ? it.media[0] : null);
+    const thumbSrc = it.thumb || null;
+
+    if(it.isVideo || (mediaUrl && mediaUrl.endsWith('.mp4'))){
+      // use small autoplayed muted video as preview (more reliable than IG thumbs)
+      thumbEl = make('video', { className:'thumb', src: mediaUrl || thumbSrc });
+      thumbEl.muted = true; thumbEl.autoplay = true; thumbEl.playsInline = true; thumbEl.loop = true;
+      // pause soon after load to avoid huge bandwith on mobile devices
+      thumbEl.addEventListener('loadeddata', ()=> thumbEl.pause());
+      // fallback if video cannot load: show placeholder
+      thumbEl.addEventListener('error', ()=> {
+        const ph = make('img', { className:'thumb', src: '' });
+        ph.onerror = () => {};
+        card.replaceChild(ph, thumbEl);
+        thumbEl = ph;
+      });
+    } else {
+      thumbEl = make('img', { className:'thumb', src: thumbSrc || '' });
+      thumbEl.onerror = () => {
+        thumbEl.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="#06121a"/><text x="50%" y="50%" fill="#6b7785" font-size="12" text-anchor="middle" dominant-baseline="middle">No thumbnail</text></svg>`);
+      };
+    }
+
+    card.appendChild(thumbEl);
+
+    const meta = make('div', { className:'meta' });
+    meta.innerHTML = `<div><strong>Media #${idx+1}</strong></div>`;
+    const details = make('div');
+    details.textContent = (it.isVideo ? 'video' : 'image') + ' • ' + (mediaUrl || thumbSrc || 'unknown');
+    meta.appendChild(details);
+
+    const actions = make('div', { className:'actions' });
+
+    // preview button
+    const btnPreview = make('button', { className:'btn-ghost', text:'Preview' });
+    btnPreview.addEventListener('click', ()=>{
+      if(mediaUrl){ window.open(mediaUrl, '_blank'); }
+    });
+    actions.appendChild(btnPreview);
+
+    // download button
+    if(mediaUrl){
+      const a = make('a', { className:'download' });
+      a.href = mediaUrl;
+      a.download = '';
+      const downBtn = make('button', { className:'btn-ghost', text:'Download' });
+      a.appendChild(downBtn);
+      actions.appendChild(a);
+    }
+
+    // open link
+    const openBtn = make('button', { className:'btn-ghost', text:'Open link' });
+    openBtn.addEventListener('click', ()=> window.open(mediaUrl || thumbSrc || '#', '_blank'));
+    actions.appendChild(openBtn);
+
+    meta.appendChild(actions);
+    card.appendChild(meta);
+    grid.appendChild(card);
+  });
+
+  out.appendChild(grid);
+}
+
+// UI events
+$('#go').addEventListener('click', search);
+$('#clear').addEventListener('click', ()=>{ urlInput.value=''; out.innerHTML=''; note.textContent=''; });
+
+// also allow enter
+urlInput.addEventListener('keydown', e=>{ if(e.key === 'Enter') search(); });
+
+  </script>
+</body>
+</html>// === api/extract.js === // Vercel serverless function (Node). Save as /api/extract.js export default async function handler(req, res) { // Allow CORS (frontend and tools) — adjust origin if you want restrict res.setHeader('Access-Control-Allow-Origin', '*'); res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS'); res.setHeader('Access-Control-Allow-Headers', 'Content-Type'); if (req.method === 'OPTIONS') return res.status(204).end();
+
+if (req.method !== 'POST') { return res.status(405).json({ error: 'Method not allowed, use POST' }); }
+
+try { const body = req.body || await new Promise(r => { let d = ''; req.on('data', c => d += c); req.on('end', () => r(d ? JSON.parse(d) : {})); });
+
+const { url } = body;
+if (!url || typeof url !== 'string') {
+  return res.status(400).json({ error: "Missing 'url' in request body" });
+}
+
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || 'instagram-downloader-scraper-reels-igtv-posts-stories.p.rapidapi.com';
+
+if (!RAPIDAPI_KEY) {
+  return res.status(500).json({ error: 'RapidAPI key not configured (RAPIDAPI_KEY)' });
+}
+
+const endpoint = `https://${RAPIDAPI_HOST}/scraper?url=${encodeURIComponent(url)}`;
+
+const rapidRes = await fetch(endpoint, {
+  method: 'GET',
+  headers: {
+    'x-rapidapi-host': RAPIDAPI_HOST,
+    'x-rapidapi-key': RAPIDAPI_KEY
   }
 });
-</script>
-</body>
-</html>
+
+const text = await rapidRes.text();
+
+// try parse body as JSON
+let data;
+try {
+  data = JSON.parse(text);
+} catch (err) {
+  // return helpful debug snippet (no keys)
+  return res.status(502).json({ error: 'Upstream returned non-JSON response', status: rapidRes.status, snippet: text.slice(0, 2000) });
+}
+
+return res.status(200).json({ status: rapidRes.status, data });
+
+} catch (err) { console.error('extract error:', err); return res.status(500).json({ error: 'Internal server error', detail: err.message }); } }
