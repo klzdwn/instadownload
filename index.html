@@ -4,62 +4,26 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>IG Downloader — Test</title>
-  <style>
-    :root{
-      --bg:#071022; --card:#0f1720; --muted:#9aa6b2; --accent1:#6ea8ff; --accent2:#9b6bff;
-      color-scheme: dark;
-    }
-    html,body{height:100%;margin:0;background:linear-gradient(180deg,#02050a,#071022);font-family:Inter, system-ui, Arial, sans-serif;color:#e6f0f6}
-    .wrap{max-width:760px;margin:28px auto;padding:20px}
-    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.08)); padding:20px;border-radius:14px;box-shadow: 0 6px 24px rgba(2,6,12,0.6)}
-    h1{margin:0 0 12px;font-size:28px}
-    p.hint{color:var(--muted);margin:8px 0 18px}
-    .row{display:flex;gap:12px;align-items:center}
-    input[type=text]{flex:1;background:transparent;border:1px solid rgba(255,255,255,0.06);padding:12px 14px;border-radius:10px;color:inherit}
-    button{background:linear-gradient(90deg,var(--accent1),var(--accent2));border:none;padding:10px 16px;border-radius:10px;color:#fff;cursor:pointer}
-    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
-    .status{margin-top:14px;color:#9ee6a7}
-    .error{color:#ff8b8b}
-    .result{margin-top:16px;background:#03131a;padding:14px;border-radius:12px;color:#dbeefc}
-    .media-card{display:flex;gap:12px;align-items:center}
-    .thumb{width:96px;height:64px;background:#111;border-radius:8px;object-fit:cover}
-    .meta{font-size:13px;color:var(--muted)}
-    .btns{margin-top:8px;display:flex;gap:8px}
-    .btns a, .btns button{padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.03);color:#ddd;text-decoration:none}
-    pre.snip{white-space:pre-wrap;word-break:break-word;background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;margin-top:12px;color:#cfe7ff;max-height:260px;overflow:auto}
-    footer.note{margin-top:36px;color:var(--muted);font-size:13px}
-  </style>
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>IG Downloader — Test</h1>
-      <p class="hint">Tempel link posting / reel / foto publik Instagram lalu tekan "Cari media".</p>
+  <main class="wrap">
+    <h1>IG Downloader — Test</h1>
 
-      <div class="row">
-        <input id="url" type="text" placeholder="https://www.instagram.com/reel/..." />
-        <button id="go">Cari media</button>
-        <button id="clear" class="ghost">Hapus</button>
+    <p class="hint">Tempel link posting / reel / foto publik Instagram lalu tekan <strong>Cari media</strong>.</p>
+
+    <div class="box">
+      <input id="urlInput" type="text" placeholder="https://www.instagram.com/..." />
+      <div class="controls">
+        <button id="btnFetch" class="primary">Cari media</button>
+        <button id="btnClear" class="ghost">Hapus</button>
       </div>
-
-      <div id="status" class="status" aria-live="polite" style="display:none"></div>
-      <div id="error" class="error" style="display:none"></div>
-
-      <div id="results" class="result" style="display:none"></div>
-
-      <pre id="snippet" class="snip" style="display:none"></pre>
-
-      <footer class="note">Pastikan backend (/api/extract) mengembalikan JSON. Jika muncul HTML/snippet, cek logs server.</footer>
+      <div id="msg" class="msg info">Jika error, lihat cuplikan response di bawah untuk debug.</div>
     </div>
-  </div>
+
+    <section id="results" class="results" aria-live="polite"></section>
+  </main>
 
   <script src="/script.js"></script>
 </body>
-  <!-- index.html: pastikan memasukkan script.js di bawah body -->
-<input id="urlInput" placeholder="https://www.instagram.com/..." />
-<button id="btnFetch">Cari media</button>
-<div id="msg" class="msg info"></div>
-<div id="results"></div>
-
-<script src="/script.js"></script>
 </html>
