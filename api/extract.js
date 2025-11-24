@@ -1,250 +1,191 @@
-// api/extract.js
-// Minimal resilient extractor for Instagram pages
-// Usage: POST { url: "https://www.instagram.com/..." }
-
-const TIMEOUT = 15000;
-
-function safeJSONParse(txt) {
-  try { return JSON.parse(txt); } catch (e) { return null; }
-}
-
-function findScriptJsonById(html, id) {
-  // <script id="__a" type="application/json">...</script>
-  const re = new RegExp(`<script[^>]*id=["']${id}["'][^>]*>([\\s\\S]*?)<\\/script>`, 'i');
-  const m = html.match(re);
-  return m && m[1] ? m[1].trim() : null;
-}
-
-function findLdJson(html) {
-  // <script type="application/ld+json">...</script>
-  const re = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i;
-  const m = html.match(re);
-  return m && m[1] ? m[1].trim() : null;
-}
-
-function findWindowJson(html) {
-  // try patterns like: window._sharedData = {...}; or window.__additionalDataLoaded('/p/..', {...})
-  let re = /window\._sharedData\s*=\s*({[\s\S]*?});/;
-  let m = html.match(re);
-  if (m && m[1]) return m[1];
-
-  re = /window\.__additionalDataLoaded\([^,]+,\s*({[\s\S]*?})\s*\);/;
-  m = html.match(re);
-  if (m && m[1]) return m[1];
-
-  // fallback: find any big JSON blob in <script> tags (heuristic)
-  re = /<script[^>]*>\s*({\s*".{1,20}":)/g;
-  m = re.exec(html);
-  if (m) {
-    // find closing } that ends the JSON - naive balancing
-    const start = m.index + m[0].indexOf('{');
-    // attempt to extract until the next </script>
-    const rest = html.slice(start, html.indexOf('</script>', start) + 9);
-    const cut = rest.split('</script>')[0];
-    return cut.trim();
-  }
-
-  return null;
-}
-
-function normalizeItemsFromJson(obj) {
-  // This function inspects common shapes and returns array of items { thumb, media, isVideo }
-  if (!obj) return [];
-
-  // common: direct array
-  if (Array.isArray(obj)) {
-    return obj.map(i => ({
-      thumb: i.thumb || i.thumbnail || i.poster || i.display_url || i.display_src || null,
-      media: i.media || i.url || i.video_url || i.video || (i.resources && i.resources[0] && i.resources[0].src) || null,
-      isVideo: !!(i.is_video || i.isVideo || i.video || /mp4|video/.test(String(i.media || i.url || i.video || '')))
-    }));
-  }
-
-  // instagram layout newer: might have .entry_data.PostPage[0].graphql.shortcode_media or
-  // .entry_data.PostPage[0].graphql.shortcode_media.edge_sidecar_to_children.edges
-  try {
-    // try common window._sharedData shape
-    const shared = obj.entry_data || obj;
-    // PostPage
-    if (shared.entry_data && Array.isArray(shared.entry_data.PostPage)) {
-      const post = shared.entry_data.PostPage[0].graphql?.shortcode_media;
-      if (post) {
-        // single or carousel
-        if (post.edge_sidecar_to_children && post.edge_sidecar_to_children.edges) {
-          return post.edge_sidecar_to_children.edges.map(e => {
-            const n = e.node || {};
-            return {
-              thumb: n.display_url || n.thumbnail_src || null,
-              media: n.is_video ? (n.video_url || n.video_resources && n.video_resources[0] && n.video_resources[0].src) : (n.display_url || null),
-              isVideo: !!n.is_video
-            };
-          });
-        } else {
-          return [{
-            thumb: post.display_url || post.thumbnail_src || null,
-            media: post.is_video ? (post.video_url || null) : (post.display_url || null),
-            isVideo: !!post.is_video
-          }];
-        }
-      }
-    }
-
-    // Reels / profiles might have "graphql.shortcode_media" directly
-    if (obj.graphql && obj.graphql.shortcode_media) {
-      const media = obj.graphql.shortcode_media;
-      if (media.edge_sidecar_to_children) {
-        return media.edge_sidecar_to_children.edges.map(e => {
-          const n = e.node || {};
-          return {
-            thumb: n.display_url || n.thumbnail_src || null,
-            media: n.is_video ? (n.video_url || null) : (n.display_url || null),
-            isVideo: !!n.is_video
-          };
-        });
-      } else {
-        return [{
-          thumb: media.display_url || media.thumbnail_src || null,
-          media: media.is_video ? (media.video_url || null) : (media.display_url || null),
-          isVideo: !!media.is_video
-        }];
-      }
-    }
-
-    // ld+json -> image object / itemListElement
-    if (obj['@type'] && (obj['@type'] === 'ImageObject' || obj['@type'] === 'VideoObject')) {
-      return [{
-        thumb: obj.thumbnailUrl || obj.image || null,
-        media: obj.contentUrl || obj.embedUrl || obj.video || obj.image || null,
-        isVideo: obj['@type'] === 'VideoObject'
-      }];
-    }
-
-    // fallback: try common paths used by some scrapers
-    const possible = obj.items || obj.data || obj.media || obj.media_items || obj.mediaData;
-    if (Array.isArray(possible)) {
-      return normalizeItemsFromJson(possible);
-    }
-  } catch (e) {
-    // ignore
-  }
-
-  return [];
-}
-
+// pages/api/extract.js
+// Next.js serverless handler: try RapidAPI if key present, else fallback to HTML scraping
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const { url } = req.body || {};
-  if (!url) {
-    res.status(400).json({ error: 'Missing url' });
-    return;
+  if (!url) return res.status(400).json({ error: "Missing url" });
+
+  // helper: normalize url (add https if missing)
+  const normalize = (u) => {
+    try { return new URL(u).toString(); }
+    catch (e) { return u.startsWith("http") ? u : `https://${u}`; }
+  };
+
+  const target = normalize(url);
+
+  // 1) Try RapidAPI if key set
+  if (process.env.RAPID_KEY) {
+    try {
+      const rapidResp = await fetch(
+        // adjust path if your RapidAPI provider differs
+        `https://instagram-media-downloader.p.rapidapi.com/rapid/download?url=${encodeURIComponent(target)}`,
+        {
+          method: "GET",
+          headers: {
+            "X-RapidAPI-Key": process.env.RAPID_KEY,
+            "X-RapidAPI-Host": "instagram-media-downloader.p.rapidapi.com"
+          },
+        }
+      );
+      const rapidJson = await rapidResp.json();
+
+      // convert to our standard shape when possible
+      if (rapidJson && Array.isArray(rapidJson.media) && rapidJson.media.length) {
+        const data = rapidJson.media.map(m => ({
+          thumb: m.thumbnail || null,
+          media: m.url || null,
+          isVideo: (m.type === "video") || Boolean(m.url && /\.mp4/i.test(m.url))
+        }));
+        return res.status(200).json({ status: 200, data });
+      }
+
+      // if RapidAPI returned but no media, continue to fallback
+    } catch (err) {
+      // ignore rapidapi errors, fall back to HTML scraping
+      console.error("RapidAPI error:", err.message);
+    }
   }
 
-  // fetch IG page with headers so server less likely blocked
+  // 2) Fallback: fetch page HTML and try extract JSON blobs
   try {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), TIMEOUT);
+    // Use an Instagram-friendly UA
+    const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36";
+    const pageResp = await fetch(target, { headers: { "User-Agent": ua, "Accept-Language": "en-US,en;q=0.9" } });
+    const txt = await pageResp.text();
 
-    const resp = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-      redirect: 'follow',
-      signal: controller.signal
-    });
-    clearTimeout(id);
+    // heuristics: try several script patterns
+    const attempts = [];
 
-    const text = await resp.text();
+    // 1) window._sharedData = {...};
+    attempts.push((() => {
+      const m = txt.match(/window\._sharedData\s*=\s*({.+?});\s*<\/script>/s);
+      return m ? m[1] : null;
+    })());
 
-    // quick check for common RapidAPI error or HTML that is not IG page
-    if (resp.status >= 400) {
-      res.status(502).json({ error: 'Upstream error', detail: `Status ${resp.status}` , snippet: text.slice(0, 2000) });
-      return;
-    }
+    // 2) application/ld+json
+    attempts.push((() => {
+      const m = txt.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
+      return m ? m[1] : null;
+    })());
 
-    // try multiple extract strategies
-    let jsonStr = null;
+    // 3) window.__additionalDataLoaded\('feed', {...}\)
+    attempts.push((() => {
+      const m = txt.match(/window\.__additionalDataLoaded\([^,]+,\s*({.+?})\s*\);/s);
+      return m ? m[1] : null;
+    })());
+
+    // 4) "sharedData" within some JSON blob (catch-all)
+    attempts.push((() => {
+      const m = txt.match(/<script[^>]*>\s*({\s*"config"[\s\S]*?)<\/script>/i);
+      return m ? m[1] : null;
+    })());
+
+    // try each parsed JSON
     let parsed = null;
-
-    // 1) <script id="__a" type="application/json">...</script>
-    jsonStr = findScriptJsonById(text, '__a') || findScriptJsonById(text, 'Initial-state') || null;
-    if (jsonStr) parsed = safeJSONParse(jsonStr);
-
-    // 2) ld+json
-    if (!parsed) {
-      const ld = findLdJson(text);
-      if (ld) parsed = safeJSONParse(ld);
+    for (const cand of attempts) {
+      if (!cand) continue;
+      try {
+        const p = JSON.parse(cand);
+        parsed = p;
+        break;
+      } catch (e) {
+        // ignore parse errors
+      }
     }
 
-    // 3) window.* JSON patterns
+    // if still null, try to find JSON with "entry_data" or "graphql"
     if (!parsed) {
-      const w = findWindowJson(text);
-      if (w) parsed = safeJSONParse(w);
+      const m2 = txt.match(/<script[^>]*>window\.__initialDataLoaded\([^,]+,\s*({.+?})\s*\)\s*<\/script>/s)
+        || txt.match(/<script[^>]*>window\.__initialProps\s*=\s*({.+?})\s*<\/script>/s);
+      if (m2 && m2[1]) {
+        try { parsed = JSON.parse(m2[1]); } catch (e) {}
+      }
     }
 
-    // 4) some pages return JSON inside "window.__additionalDataLoaded('/...',{...})"
+    // if STILL no parsed JSON, return debug
     if (!parsed) {
-      // try extract object from window.__additionalDataLoaded occurrences
-      const reAdd = /window\.__additionalDataLoaded\([^,]+,\s*({[\s\S]*?})\s*\);/g;
-      let m;
-      while ((m = reAdd.exec(text)) !== null) {
-        const candidate = safeJSONParse(m[1]);
-        if (candidate) {
-          parsed = candidate;
-          break;
+      return res.status(200).json({
+        status: "NO_JSON_DEBUG",
+        message: "Instagram returned non-JSON page.",
+        snippet: txt.slice(0, 6000),
+        original_url: target
+      });
+    }
+
+    // Now try to find media inside parsed object (many shapes)
+    const results = [];
+
+    // helper to push if valid
+    const tryPush = (thumb, media, isVideo=false) => {
+      if (!thumb && !media) return;
+      results.push({ thumb: thumb || null, media: media || null, isVideo: !!isVideo });
+    };
+
+    // common locations (legacy)
+    try {
+      // graphql shortcode_media (single)
+      const sc = parsed.entry_data?.PostPage?.[0] || parsed?.entry_data?.ProfilePage?.[0] || parsed;
+      if (sc && sc.graphql && sc.graphql.shortcode_media) {
+        const node = sc.graphql.shortcode_media;
+        if (node.__typename === "GraphVideo") {
+          tryPush(node.display_url || node.thumbnail_src || node.thumbnail_resources?.[0]?.src, node.video_url || node.url, true);
+        } else if (node.edge_sidecar_to_children && node.edge_sidecar_to_children.edges) {
+          node.edge_sidecar_to_children.edges.forEach(e => {
+            const n = e.node;
+            tryPush(n.display_url || n.thumbnail_src, n.is_video ? n.video_url : (n.display_url || null), !!n.is_video);
+          });
+        } else {
+          tryPush(node.display_url || node.thumbnail_src, node.is_video ? node.video_url : node.display_url, !!node.is_video);
         }
       }
-    }
+    } catch(e){}
 
-    // 5) last-ditch: try to find any JSON-looking block in <script> tags
-    if (!parsed) {
-      const anyJsonRe = /<script[^>]*>\s*({[\s\S]*})\s*<\/script>/g;
-      let m;
-      while ((m = anyJsonRe.exec(text)) !== null) {
-        const cand = safeJSONParse(m[1]);
-        if (cand) { parsed = cand; break; }
+    // application/ld+json might contain image and video
+    try {
+      if (parsed["@type"] === "ImageObject" || parsed.image) {
+        const im = parsed.image;
+        if (typeof im === "string") tryPush(im, im, false);
+        else if (Array.isArray(im)) tryPush(im[0], im[0], false);
+      }
+    } catch(e){}
+
+    // other possible nested keys - search for "thumbnail_url" or "display_url" anywhere
+    function deepSearch(obj) {
+      if (!obj || typeof obj !== "object") return;
+      if (obj.thumbnail_url || obj.thumbnail || obj.thumbnail_src || obj.display_url) {
+        const thumb = obj.thumbnail_url || obj.thumbnail || obj.thumbnail_src || obj.display_url || null;
+        const media = obj.video_url || obj.contentUrl || obj.url || null;
+        const isVideo = Boolean(obj.is_video || (media && /\.mp4/i.test(media)));
+        tryPush(thumb, media || thumb, isVideo);
+      }
+      for (const k of Object.keys(obj)) {
+        try { deepSearch(obj[k]); } catch(e){}
       }
     }
+    deepSearch(parsed);
 
-    // If still no parsed JSON, return debug
-    if (!parsed) {
-      res.status(200).json({
-        status: 'NO_JSON_DEBUG',
-        message: 'Instagram returned non-JSON page.',
-        snippet: text.slice(0, 4000),
-        original_url: url
-      });
-      return;
+    // dedupe results and normalize
+    const uniq = [];
+    const seen = new Set();
+    for (const r of results) {
+      const key = (r.media || r.thumb || "") + "|" + (r.isVideo ? "v":"i");
+      if (!seen.has(key)) { seen.add(key); uniq.push(r); }
     }
 
-    // normalize to item list
-    const items = normalizeItemsFromJson(parsed);
-    if (!items || !items.length) {
-      // sometimes parsed is already array
-      const alt = normalizeItemsFromJson(parsed.data || parsed.items || parsed);
-      if (alt && alt.length) {
-        res.status(200).json({ status: 200, data: alt });
-        return;
-      }
-
-      res.status(200).json({
+    if (!uniq.length) {
+      return res.status(200).json({
         status: 200,
-        data: [{ thumb: null, media: null, isVideo: false }],
-        warning: 'Parsed JSON but no media found. See parsed object keys for debug.',
-        parsedKeys: Object.keys(parsed).slice(0,20)
+        warning: "Parsed JSON but no media found. See parsed object keys for debug.",
+        parsedKeys: Object.keys(parsed || {}),
+        data: []
       });
-      return;
     }
 
-    res.status(200).json({ status: 200, data: items });
+    return res.status(200).json({ status: 200, data: uniq });
+
   } catch (err) {
-    console.error('extract error', err);
-    res.status(500).json({ error: 'Server error', detail: String(err) });
+    console.error("Extract error:", err);
+    return res.status(500).json({ error: "Server error", detail: err.message });
   }
 }
