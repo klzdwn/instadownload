@@ -1,227 +1,58 @@
-// === index.html === 
 <!doctype html>
-<html lang="en">
+<html lang="id">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>IG Downloader — Test</title>
   <style>
-    :root{--bg:#071018;--card:#0f1720;--muted:#9aa7b2;--accent1:#6ea8ff;--accent2:#9b6bff}
-    html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,var(--bg),#02040a);color:#e6eef6}
-    .wrap{max-width:720px;margin:36px auto;padding:20px}
-    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));padding:20px;border-radius:14px;box-shadow:0 6px 30px rgba(0,0,0,0.6)}
-    h1{margin:0 0 12px;font-size:22px}
-    .input-row{display:flex;gap:10px;margin:10px 0}
-    input[type=text]{flex:1;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
-    button{padding:10px 14px;border-radius:10px;border:none;cursor:pointer;background:linear-gradient(90deg,var(--accent1),var(--accent2));color:#001}
-    .muted{color:var(--muted);font-size:13px}
-    .resp{margin-top:18px}
-    pre.json{background:#03121a;padding:12px;border-radius:10px;overflow:auto;color:#cfe7ff}
-    .media-grid{display:flex;flex-direction:column;gap:12px}
-    .media-card{display:flex;gap:12px;align-items:center;background:rgba(255,255,255,0.02);padding:12px;border-radius:10px}
-    .thumb{width:180px;height:100px;object-fit:cover;border-radius:8px;background:#06121a}
-    .meta{flex:1;color:var(--muted);font-size:13px}
-    .actions{display:flex;gap:8px}
-    .btn-ghost{padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
-    a.download{color:inherit;text-decoration:none}
-    .error{color:#ff7b7b}
-    @media (max-width:480px){.thumb{width:120px;height:80px}}
+    :root{
+      --bg:#071022; --card:#0f1720; --muted:#9aa6b2; --accent1:#6ea8ff; --accent2:#9b6bff;
+      color-scheme: dark;
+    }
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#02050a,#071022);font-family:Inter, system-ui, Arial, sans-serif;color:#e6f0f6}
+    .wrap{max-width:760px;margin:28px auto;padding:20px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.08)); padding:20px;border-radius:14px;box-shadow: 0 6px 24px rgba(2,6,12,0.6)}
+    h1{margin:0 0 12px;font-size:28px}
+    p.hint{color:var(--muted);margin:8px 0 18px}
+    .row{display:flex;gap:12px;align-items:center}
+    input[type=text]{flex:1;background:transparent;border:1px solid rgba(255,255,255,0.06);padding:12px 14px;border-radius:10px;color:inherit}
+    button{background:linear-gradient(90deg,var(--accent1),var(--accent2));border:none;padding:10px 16px;border-radius:10px;color:#fff;cursor:pointer}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
+    .status{margin-top:14px;color:#9ee6a7}
+    .error{color:#ff8b8b}
+    .result{margin-top:16px;background:#03131a;padding:14px;border-radius:12px;color:#dbeefc}
+    .media-card{display:flex;gap:12px;align-items:center}
+    .thumb{width:96px;height:64px;background:#111;border-radius:8px;object-fit:cover}
+    .meta{font-size:13px;color:var(--muted)}
+    .btns{margin-top:8px;display:flex;gap:8px}
+    .btns a, .btns button{padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.03);color:#ddd;text-decoration:none}
+    pre.snip{white-space:pre-wrap;word-break:break-word;background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;margin-top:12px;color:#cfe7ff;max-height:260px;overflow:auto}
+    footer.note{margin-top:36px;color:var(--muted);font-size:13px}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
       <h1>IG Downloader — Test</h1>
-      <div class="muted">Tempel link posting / reel / foto publik Instagram lalu tekan <strong>Cari media</strong>.</div>
-      <div class="input-row">
-        <input id="url" type="text" placeholder="https://www.instagram.com/reel/.." />
+      <p class="hint">Tempel link posting / reel / foto publik Instagram lalu tekan "Cari media".</p>
+
+      <div class="row">
+        <input id="url" type="text" placeholder="https://www.instagram.com/reel/..." />
         <button id="go">Cari media</button>
-        <button id="clear" class="btn-ghost">Hapus</button>
+        <button id="clear" class="ghost">Hapus</button>
       </div>
-      <div id="note" class="muted">Jika error, coba ulang beberapa saat — atau lihat cuplikan response di bawah untuk debug.</div>
-      <div id="out" class="resp"></div>
+
+      <div id="status" class="status" aria-live="polite" style="display:none"></div>
+      <div id="error" class="error" style="display:none"></div>
+
+      <div id="results" class="result" style="display:none"></div>
+
+      <pre id="snippet" class="snip" style="display:none"></pre>
+
+      <footer class="note">Pastikan backend (/api/extract) mengembalikan JSON. Jika muncul HTML/snippet, cek logs server.</footer>
     </div>
-  </div>  <script>
-    // helper
-    const $ = sel => document.querySelector(sel);
-    const make = (t, props = {}) => {
-      const el = document.createElement(t);
-      Object.entries(props).forEach(([k,v]) => {
-        if(k === 'className') el.className = v;
-        else if(k === 'text') el.textContent = v;
-        else el.setAttribute(k,v);
-      });
-      return el;
-    };
+  </div>
 
-    const out = $('#out');
-    const urlInput = $('#url');
-    const note = $('#note');
-
-    async function search(){
-      out.innerHTML = '';
-      note.textContent = 'Loading...';
-      const url = urlInput.value.trim();
-      if(!url){ note.textContent = 'Masukkan URL Instagram dulu.'; return }
-
-      try{
-        const resp = await fetch('/api/extract', {
-          method: 'POST',
-          headers: { 'Content-Type':'application/json' },
-          body: JSON.stringify({ url })
-        });
-
-        const text = await resp.text();
-        let j;
-        try{ j = JSON.parse(text); } catch(e){
-          // show snippet for debug
-          out.innerHTML = '<pre class="json">Non-JSON from backend:\n'+escapeHtml(text.slice(0,2000))+'</pre>';note.textContent = 'Upstream tidak mengembalikan JSON. Cek logs.';
-      return;
-    }
-
-    if(resp.status >= 400){
-      out.innerHTML = '<pre class="json">'+JSON.stringify(j, null, 2)+'</pre>';
-      note.textContent = j.error ? j.error : 'Error';
-      return;
-    }
-
-    renderResult(j);
-  }catch(err){
-    note.textContent = 'Network error: '+err.message;
-  }
-}
-
-function escapeHtml(s){ return s.replace(/[&<>]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c])) }
-
-function renderResult(obj){
-  note.textContent = 'Sukses — lihat hasil di bawah';
-  out.innerHTML = '';
-  const data = obj && (obj.data || obj) ;
-  // The RapidAPI used returns { status:200, data: { data:[ ... ] } }
-  let items = [];
-  if(data && data.data && Array.isArray(data.data)) items = data.data;
-  else if(Array.isArray(data)) items = data;
-  else if(data && Array.isArray(data.data)) items = data.data;
-
-  if(!items.length){ out.innerHTML = '<div class="muted">Tidak ada media ditemukan</div>'; return }
-
-  const grid = make('div', { className:'media-grid' });
-  items.forEach((it, idx) => {
-    const card = make('div', { className:'media-card' });
-
-    // choose thumbnail / preview
-    let thumbEl;
-    const mediaUrl = it.media || (Array.isArray(it.media) ? it.media[0] : null);
-    const thumbSrc = it.thumb || null;
-
-    if(it.isVideo || (mediaUrl && mediaUrl.endsWith('.mp4'))){
-      // use small autoplayed muted video as preview (more reliable than IG thumbs)
-      thumbEl = make('video', { className:'thumb', src: mediaUrl || thumbSrc });
-      thumbEl.muted = true; thumbEl.autoplay = true; thumbEl.playsInline = true; thumbEl.loop = true;
-      // pause soon after load to avoid huge bandwith on mobile devices
-      thumbEl.addEventListener('loadeddata', ()=> thumbEl.pause());
-      // fallback if video cannot load: show placeholder
-      thumbEl.addEventListener('error', ()=> {
-        const ph = make('img', { className:'thumb', src: '' });
-        ph.onerror = () => {};
-        card.replaceChild(ph, thumbEl);
-        thumbEl = ph;
-      });
-    } else {
-      thumbEl = make('img', { className:'thumb', src: thumbSrc || '' });
-      thumbEl.onerror = () => {
-        thumbEl.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="#06121a"/><text x="50%" y="50%" fill="#6b7785" font-size="12" text-anchor="middle" dominant-baseline="middle">No thumbnail</text></svg>`);
-      };
-    }
-
-    card.appendChild(thumbEl);
-
-    const meta = make('div', { className:'meta' });
-    meta.innerHTML = `<div><strong>Media #${idx+1}</strong></div>`;
-    const details = make('div');
-    details.textContent = (it.isVideo ? 'video' : 'image') + ' • ' + (mediaUrl || thumbSrc || 'unknown');
-    meta.appendChild(details);
-
-    const actions = make('div', { className:'actions' });
-
-    // preview button
-    const btnPreview = make('button', { className:'btn-ghost', text:'Preview' });
-    btnPreview.addEventListener('click', ()=>{
-      if(mediaUrl){ window.open(mediaUrl, '_blank'); }
-    });
-    actions.appendChild(btnPreview);
-
-    // download button
-    if(mediaUrl){
-      const a = make('a', { className:'download' });
-      a.href = mediaUrl;
-      a.download = '';
-      const downBtn = make('button', { className:'btn-ghost', text:'Download' });
-      a.appendChild(downBtn);
-      actions.appendChild(a);
-    }
-
-    // open link
-    const openBtn = make('button', { className:'btn-ghost', text:'Open link' });
-    openBtn.addEventListener('click', ()=> window.open(mediaUrl || thumbSrc || '#', '_blank'));
-    actions.appendChild(openBtn);
-
-    meta.appendChild(actions);
-    card.appendChild(meta);
-    grid.appendChild(card);
-  });
-
-  out.appendChild(grid);
-}
-
-// UI events
-$('#go').addEventListener('click', search);
-$('#clear').addEventListener('click', ()=>{ urlInput.value=''; out.innerHTML=''; note.textContent=''; });
-
-// also allow enter
-urlInput.addEventListener('keydown', e=>{ if(e.key === 'Enter') search(); });
-
-  </script>
+  <script src="/script.js"></script>
 </body>
-</html>// === api/extract.js === // Vercel serverless function (Node). Save as /api/extract.js export default async function handler(req, res) { // Allow CORS (frontend and tools) — adjust origin if you want restrict res.setHeader('Access-Control-Allow-Origin', '*'); res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS'); res.setHeader('Access-Control-Allow-Headers', 'Content-Type'); if (req.method === 'OPTIONS') return res.status(204).end();
-
-if (req.method !== 'POST') { return res.status(405).json({ error: 'Method not allowed, use POST' }); }
-
-try { const body = req.body || await new Promise(r => { let d = ''; req.on('data', c => d += c); req.on('end', () => r(d ? JSON.parse(d) : {})); });
-
-const { url } = body;
-if (!url || typeof url !== 'string') {
-  return res.status(400).json({ error: "Missing 'url' in request body" });
-}
-
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || 'instagram-downloader-scraper-reels-igtv-posts-stories.p.rapidapi.com';
-
-if (!RAPIDAPI_KEY) {
-  return res.status(500).json({ error: 'RapidAPI key not configured (RAPIDAPI_KEY)' });
-}
-
-const endpoint = `https://${RAPIDAPI_HOST}/scraper?url=${encodeURIComponent(url)}`;
-
-const rapidRes = await fetch(endpoint, {
-  method: 'GET',
-  headers: {
-    'x-rapidapi-host': RAPIDAPI_HOST,
-    'x-rapidapi-key': RAPIDAPI_KEY
-  }
-});
-
-const text = await rapidRes.text();
-
-// try parse body as JSON
-let data;
-try {
-  data = JSON.parse(text);
-} catch (err) {
-  // return helpful debug snippet (no keys)
-  return res.status(502).json({ error: 'Upstream returned non-JSON response', status: rapidRes.status, snippet: text.slice(0, 2000) });
-}
-
-return res.status(200).json({ status: rapidRes.status, data });
-
-} catch (err) { console.error('extract error:', err); return res.status(500).json({ error: 'Internal server error', detail: err.message }); } }
+</html>
