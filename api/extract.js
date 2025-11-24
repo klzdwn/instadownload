@@ -1,187 +1,101 @@
-// script.js (FULL, replace your old script.js with this)
-const form = document.getElementById("form");
-const urlInput = document.getElementById("urlInput");
-const resultBox = document.getElementById("result");
-const statusLabel = document.getElementById("statusLabel");
-const loading = document.getElementById("loading");
+// api/extract.js
+// Improved Vercel serverless handler with better error logging and safe responses.
 
-// small helper to create elements
-function el(tag, attrs = {}, children = []) {
-  const e = document.createElement(tag);
-  for (const k in attrs) {
-    if (k === "class") e.className = attrs[k];
-    else if (k === "text") e.textContent = attrs[k];
-    else if (k === "html") e.innerHTML = attrs[k];
-    else e.setAttribute(k, attrs[k]);
-  }
-  children.forEach(c => e.appendChild(c));
-  return e;
-}
+export default async function handler(req, res) {
+  // CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-function clearResult() {
-  resultBox.innerHTML = "";
-}
-
-function showStatus(text, color) {
-  statusLabel.textContent = text;
-  statusLabel.style.color = color || "#bbb";
-}
-
-function showError(text) {
-  showStatus(text, "red");
-}
-
-// render upstream debugging snippet (collapsible)
-function renderSnippet(snippet) {
-  const wrap = el("div", { class: "snippet-wrap" });
-  const btn = el("button", { class: "snippet-toggle", text: "Show debug snippet" });
-  const pre = el("pre", { class: "snippet-pre", text: snippet });
-  pre.style.display = "none";
-  btn.addEventListener("click", () => {
-    const opened = pre.style.display === "block";
-    pre.style.display = opened ? "none" : "block";
-    btn.textContent = opened ? "Show debug snippet" : "Hide debug snippet";
-  });
-  wrap.appendChild(btn);
-  wrap.appendChild(pre);
-  return wrap;
-}
-
-// preview media in a new window/tab
-function previewMedia(src, isVideo) {
-  const w = window.open("", "_blank");
-  if (!w) {
-    alert("Pop-up blocked. Izinkan pop-up untuk melihat preview.");
-    return;
-  }
-  w.document.body.style.margin = "0";
-  if (isVideo) {
-    w.document.body.innerHTML = `<video src="${src}" controls autoplay style="width:100vw;height:100vh;object-fit:contain;background:#000"></video>`;
-  } else {
-    w.document.body.innerHTML = `<img src="${src}" style="width:100vw;height:100vh;object-fit:contain;background:#000" />`;
-  }
-}
-
-// render a single media card (thumb, preview, download, open)
-function renderMediaCard(item, index) {
-  const thumb = item.thumb || "";
-  const media = item.media || item.url || "";
-  const isVideo = !!item.isVideo;
-
-  const img = el("img", { src: thumb, class: "media-thumb", alt: `thumb-${index}` });
-  img.onerror = () => { img.src = ""; img.style.display = "none"; };
-
-  const title = el("p", { class: "media-title", text: `Media #${index + 1} — ${isVideo ? "video" : "image"}` });
-
-  const openLink = el("a", { href: media, target: "_blank", class: "btn small", text: "Open link" });
-  const previewBtn = el("button", { class: "btn small", text: "Preview" });
-  previewBtn.addEventListener("click", () => previewMedia(media, isVideo));
-
-  const downloadA = el("a", {
-    href: media,
-    download: `ig_media_${index + 1}.${isVideo ? "mp4" : "jpg"}`,
-    class: "btn small",
-    text: "Download"
-  });
-
-  const btnRow = el("div", { class: "btn-row" }, [previewBtn, downloadA, openLink]);
-
-  const info = el("div", { class: "media-info" }, [title, btnRow]);
-
-  const card = el("div", { class: "media-card" }, [img, info]);
-  return card;
-}
-
-// main submit handler
-form.addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const url = urlInput.value.trim();
-  if (!url) {
-    alert("Masukkan URL Instagram terlebih dahulu.");
-    return;
-  }
-
-  clearResult();
-  showStatus("Memproses...", "#bbb");
-  loading.style.display = "block";
+  if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed, use POST" });
 
   try {
-    const resp = await fetch("/api/extract", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url })
-    });
-
-    // try parse JSON safely
-    let payload;
-    try {
-      payload = await resp.json();
-    } catch (err) {
-      // Response bukan JSON
-      loading.style.display = "none";
-      showError("Network error: server returned non-JSON response");
-      // show raw text fallback
-      try {
-        const raw = await resp.text();
-        const snippetNode = renderSnippet(raw.slice(0, 2000));
-        resultBox.appendChild(snippetNode);
-      } catch (e) {
-        console.error("failed to read raw text:", e);
-      }
-      return;
-    }
-
-    loading.style.display = "none";
-
-    // if backend returned an error object (our extract.js does this)
-    if (!resp.ok || payload.error) {
-      const msg = payload.error || `Server error (${payload.status || resp.status})`;
-      showError(msg);
-      // show snippet if present (helpful for debugging upstream HTML/login pages)
-      if (payload.snippet) {
-        const s = renderSnippet(payload.snippet);
-        resultBox.appendChild(s);
-      } else if (payload.detail) {
-        const d = el("pre", { class: "error-detail", text: String(payload.detail) });
-        resultBox.appendChild(d);
-      }
-      return;
-    }
-
-    // success path: payload should have { status: <num>, data: <object> }
-    showStatus("Sukses — lihat hasil di bawah", "lightgreen");
-
-    const items = (payload && payload.data && payload.data.data) || payload.data || [];
-
-    if (!Array.isArray(items)) {
-      // if response is object with single media, normalize
-      if (items && typeof items === "object") {
-        // try common fields
-        const normalized = [];
-        if (items.media || items.thumb || items.url) normalized.push(items);
-        else if (items.data && Array.isArray(items.data)) normalized.push(...items.data);
-        else {
-          resultBox.innerHTML = "<p style='color:orange'>Response tidak berbentuk array media — check debug</p>";
-          if (payload.snippet) resultBox.appendChild(renderSnippet(payload.snippet));
-          return;
-        }
-        // continue with normalized
-        normalized.forEach((it, i) => resultBox.appendChild(renderMediaCard(it, i)));
-        return;
+    // robust body parsing for different runtimes
+    let body = req.body;
+    if (!body || (typeof body === "object" && Object.keys(body).length === 0)) {
+      // try to read raw stream (some runtimes)
+      if (req.on) {
+        body = await new Promise((resolve) => {
+          let d = "";
+          req.on("data", (c) => (d += c));
+          req.on("end", () => {
+            try { resolve(JSON.parse(d || "{}")); }
+            catch (e) { resolve({}); }
+          });
+        });
       } else {
-        resultBox.innerHTML = "<p style='color:orange'>Tidak menemukan media.</p>";
-        return;
+        body = {};
       }
     }
 
-    // render array of items
-    items.forEach((it, i) => {
-      resultBox.appendChild(renderMediaCard(it, i));
+    const { url } = body || {};
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({ error: "Missing 'url' in request body" });
+    }
+
+    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+    const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "instagram-downloader-scraper-reels-igtv-posts-stories.p.rapidapi.com";
+
+    if (!RAPIDAPI_KEY) {
+      console.error("Missing RAPIDAPI_KEY env var");
+      return res.status(500).json({ error: "RapidAPI key not configured (RAPIDAPI_KEY)" });
+    }
+
+    const endpoint = `https://${RAPIDAPI_HOST}/scraper?url=${encodeURIComponent(url)}`;
+
+    // timeout
+    const controller = new AbortController();
+    const timeoutMs = 15000;
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+
+    let rapidRes;
+    try {
+      rapidRes = await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          "x-rapidapi-host": RAPIDAPI_HOST,
+          "x-rapidapi-key": RAPIDAPI_KEY,
+          "Accept": "application/json"
+        },
+        signal: controller.signal
+      });
+    } catch (fetchErr) {
+      clearTimeout(t);
+      console.error("Fetch to RapidAPI failed:", fetchErr && fetchErr.message ? fetchErr.message : fetchErr);
+      if (fetchErr.name === "AbortError") {
+        return res.status(504).json({ error: "Upstream timeout" });
+      }
+      return res.status(502).json({ error: "Failed to reach RapidAPI", detail: String(fetchErr.message || fetchErr) });
+    }
+    clearTimeout(t);
+
+    const text = await rapidRes.text().catch(err => {
+      console.error("Failed reading upstream text:", err);
+      return "";
     });
+
+    // try parse JSON
+    try {
+      const data = JSON.parse(text);
+      return res.status(200).json({ status: rapidRes.status, data });
+    } catch (parseErr) {
+      // upstream returned HTML or other non-JSON -> include short snippet for debugging
+      const snippet = text ? text.slice(0, 4000) : "";
+      console.error("Upstream returned non-JSON; status:", rapidRes.status);
+      // Don't leak keys or secrets in response
+      return res.status(502).json({
+        error: "Upstream returned non-JSON response",
+        status: rapidRes.status,
+        // include snippet to debug (short)
+        snippet
+      });
+    }
 
   } catch (err) {
-    loading.style.display = "none";
-    console.error("Request failed:", err);
-    showError("Gagal melakukan request. Cek console.");
+    // Log stacktrace for debugging in Vercel logs
+    console.error("extract handler top-level error:", err && err.stack ? err.stack : err);
+    // Return a sanitized error message to client
+    return res.status(500).json({ error: "A server error has occurred", code: "FUNCTION_INVOCATION_FAILED" });
   }
-});
+}
