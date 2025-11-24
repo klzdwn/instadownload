@@ -1,90 +1,161 @@
 <!doctype html>
-<html>
+<html lang="id">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>IG Downloader - Test</title>
-  <style>
-    body{font-family:system-ui,Segoe UI,Roboto; background:#0b0f16;color:#e6eef8; padding:28px}
-    .card{max-width:720px;margin:24px auto;padding:20px;border-radius:12px;background:linear-gradient(180deg,#0f1720, #0b1015); box-shadow: 0 6px 30px rgba(0,0,0,.6)}
-    input[type=text]{width:100%;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.06);background:#071018;color:#fff}
-    button{padding:10px 14px;border-radius:8px;border:0;background:linear-gradient(90deg,#4f9fff,#7c6bff);color:#fff;cursor:pointer}
-    .muted{color:#9fb0c8;font-size:14px;margin-top:10px}
-    .error{color:#ff6b6b;margin-top:12px}
-    pre{background:#051018;padding:12px;border-radius:8px;color:#bfe0ff;overflow:auto}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>IG Downloader — Test</title>
+<style>
+  :root{--bg:#0f1720;--card:#0b1220;--muted:#9aa6b2;--accent1:#5b9cff;--accent2:#9b59ff}
+  body{margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#08121a 0,#071018 100%);color:#e6eef6;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:48px}
+  .card{width:100%;max-width:720px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border-radius:12px;padding:24px;box-shadow:0 6px 30px rgba(2,6,23,0.6)}
+  h1{margin:0 0 12px;font-size:22px}
+  .controls{display:flex;gap:8px;margin-bottom:14px}
+  input[type=text]{flex:1;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.02);color:#eaf4ff}
+  button{padding:10px 14px;border-radius:10px;border:0;cursor:pointer;background:linear-gradient(90deg,var(--accent1),var(--accent2));color:#fff}
+  #result{margin-top:18px;color:var(--muted);font-family:monospace;white-space:pre-wrap}
+  .item{margin:14px 0;padding:12px;border-radius:10px;background:rgba(0,0,0,0.25);display:flex;gap:12px;align-items:flex-start}
+  .thumb{width:160px;height:90px;object-fit:cover;border-radius:6px;background:#000}
+  .meta{flex:1}
+  .actions{display:flex;gap:8px;margin-top:8px}
+  .linkbtn{padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.06);color:#fff;border:0;cursor:pointer}
+  .ok{color:#bde8b4}
+  .err{color:#ff9b9b}
+</style>
 </head>
 <body>
-  <div class="card">
-    <h2>IG Downloader — Test</h2>
-    <p class="muted">Tempel link posting/reel/foto publik Instagram lalu tekan "Cari media".</p>
-
-    <div style="margin-top:12px">
-      <input id="urlInput" type="text" placeholder="https://www.instagram.com/reel/..." value="" />
+  <main class="card">
+    <h1>IG Downloader — Test</h1>
+    <div class="controls">
+      <input id="inputUrl" type="text" placeholder="https://www.instagram.com/reel/..." />
+      <button id="btnCari">Cari media</button>
     </div>
 
-    <div style="margin-top:12px;display:flex;gap:8px">
-      <button id="btnFetch">Cari media</button>
-      <button id="btnClear" style="background:#222;color:#fff">Hapus</button>
-    </div>
-
-    <div id="status" class="muted" style="margin-top:12px"></div>
-    <div id="error" class="error"></div>
-
-    <div id="result" style="margin-top:16px"></div>
-  </div>
+    <div id="status" class="ok">Siap — masukkan link dan klik "Cari media".</div>
+    <div id="result"></div>
+  </main>
 
 <script>
-  const btn = document.getElementById('btnFetch');
-  const clearBtn = document.getElementById('btnClear');
-  const urlInput = document.getElementById('urlInput');
-  const statusEl = document.getElementById('status');
-  const errorEl = document.getElementById('error');
-  const resultEl = document.getElementById('result');
-
-  clearBtn.onclick = () => {
-    urlInput.value = '';
-    statusEl.textContent = '';
-    errorEl.textContent = '';
-    resultEl.innerHTML = '';
-  };
-
-  btn.onclick = async () => {
-    errorEl.textContent = '';
-    statusEl.textContent = 'Loading...';
-    resultEl.innerHTML = '';
-    const url = urlInput.value.trim();
-    if (!url) { errorEl.textContent = "Masukkan URL Instagram"; statusEl.textContent=''; return; }
-
-    try {
-      const res = await fetch('/api/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
-      });
-
-      const text = await res.text();
-
-      // try parse JSON; if not, show snippet for debug
-      try {
-        const data = JSON.parse(text);
-        statusEl.textContent = 'Sukses — lihat hasil di bawah';
-        resultEl.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
-      } catch (e) {
-        // non-json response (maybe HTML snippet). show first chunk to debug.
-        errorEl.textContent = 'Network error: Upstream returned non-JSON (lihat debug di bawah)';
-        resultEl.innerHTML = '<pre>' + escapeHtml(text.slice(0, 2000)) + '</pre>';
-        statusEl.textContent = '';
-      }
-    } catch (err) {
-      errorEl.textContent = 'Request failed: ' + err.message;
-      statusEl.textContent = '';
-    }
-  };
-
-  function escapeHtml(s) {
-    return s.replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+async function postExtract(url) {
+  const res = await fetch('/api/extract', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ url })
+  });
+  // baca response sebagai text dulu (untuk debug non-json)
+  const txt = await res.text();
+  try {
+    return { ok:true, json: JSON.parse(txt), status: res.status };
+  } catch(e) {
+    return { ok:false, text: txt, status: res.status };
   }
+}
+
+function makeEl(tag, props={}, ...children){
+  const el = document.createElement(tag);
+  Object.assign(el, props);
+  for (const c of children) {
+    if (typeof c === 'string') el.appendChild(document.createTextNode(c));
+    else if (c) el.appendChild(c);
+  }
+  return el;
+}
+
+async function downloadBlob(url, filename='file') {
+  // fetch as blob then trigger download
+  try {
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('Gagal fetch resource: ' + r.status);
+    const b = await r.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(b);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(()=> URL.revokeObjectURL(link.href), 5000);
+  } catch (err) {
+    alert('Download error: ' + err.message);
+    console.error(err);
+  }
+}
+
+function renderResults(data) {
+  // data expected shape: { status:..., data: { data: [ {thumb, media, isVideo}, ... ] } }
+  const result = document.getElementById('result');
+  result.innerHTML = '';
+  if (!data || !data.data || !Array.isArray(data.data.data)) {
+    result.appendChild(makeEl('div', {}, 'Tidak ada media (cek log backend).'));
+    return;
+  }
+
+  data.data.data.forEach((it, idx) => {
+    const item = makeEl('div', { className:'item' });
+    const thumbSrc = it.thumb || (it.media && it.media[0]) || it.media;
+    const thumb = makeEl('img', { className:'thumb', src: thumbSrc || '' });
+    const meta = makeEl('div', { className: 'meta' });
+    const title = makeEl('div', {}, `Media #${idx+1}`);
+    const info = makeEl('div', { style: 'font-size:13px;color:var(--muted);margin-top:6px' }, (it.isVideo ? 'video' : 'image') + ' • ' + (it.media||''));
+    const actions = makeEl('div', { className:'actions' });
+
+    // Preview (open in new tab)
+    const previewBtn = makeEl('button', { className:'linkbtn' }, 'Preview');
+    previewBtn.addEventListener('click', ()=> {
+      const u = it.media || it.thumb;
+      if (!u) return alert('Tidak ada URL media');
+      window.open(u, '_blank');
+    });
+
+    // Direct download via blob (safer vs cross-origin)
+    const downloadBtn = makeEl('button', { className:'linkbtn' }, 'Download');
+    downloadBtn.addEventListener('click', async ()=> {
+      const u = it.media || it.thumb;
+      if (!u) return alert('Tidak ada URL media');
+      // suggest filename based on index + extension
+      const ext = (u.split('?')[0].split('.').pop() || 'bin').slice(0,6);
+      await downloadBlob(u, `media-${idx+1}.${ext}`);
+    });
+
+    // also add a direct link (target blank)
+    const direct = makeEl('a', { href: it.media || it.thumb || '#', target:'_blank', className:'linkbtn' }, 'Open link');
+
+    actions.appendChild(previewBtn);
+    actions.appendChild(downloadBtn);
+    actions.appendChild(direct);
+
+    meta.appendChild(title);
+    meta.appendChild(info);
+    meta.appendChild(actions);
+
+    item.appendChild(thumb);
+    item.appendChild(meta);
+    result.appendChild(item);
+  });
+}
+
+document.getElementById('btnCari').addEventListener('click', async ()=> {
+  const url = document.getElementById('inputUrl').value.trim();
+  const statusEl = document.getElementById('status');
+  const resultEl = document.getElementById('result');
+  resultEl.innerHTML = '';
+  if (!url) return alert('Masukkan URL Instagram dulu');
+  statusEl.textContent = 'Memproses...';
+  try {
+    const r = await postExtract(url);
+    if (!r.ok) {
+      statusEl.className = 'err';
+      statusEl.textContent = `Upstream non-JSON (status ${r.status}). Lihat cuplikan di bawah.`;
+      resultEl.innerHTML = '<pre style="color:#f8c0c0">'+ (r.text || '').slice(0,2000) +'</pre>';
+      return;
+    }
+    statusEl.className = 'ok';
+    statusEl.textContent = 'Sukses — lihat hasil di bawah';
+    renderResults(r.json);
+  } catch (err) {
+    statusEl.className = 'err';
+    statusEl.textContent = 'Network error: ' + err.message;
+    resultEl.innerHTML = '<pre style="color:#f8c0c0">'+ err.stack +'</pre>';
+  }
+});
 </script>
 </body>
 </html>
