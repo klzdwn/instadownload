@@ -123,12 +123,12 @@
       // buttons row
       const row = create("div", { style: "margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" });
       const btnPreview = create("button", { text: "Preview", style: "padding:8px 12px;border-radius:8px;background:#1A202C;color:#fff;border:none;cursor:pointer" });
-      const btnDownload = create("button", {
+      // === tombol Download → selalu lewat proxy download ===
+const btnDownload = create("a", {
   text: "Download",
-  style: "padding:8px 14px;border-radius:10px;background:#7b61ff;color:white;"
-});
-btnDownload.addEventListener("click", () => {
-  window.location.href = "/api/download?url=" + encodeURIComponent(mediaUrl);
+  href: "/api/download?url=" + encodeURIComponent(mediaUrl),
+  style: "padding:8px 14px;border-radius:10px;background:#7b61ff;color:#fff;text-decoration:none;",
+  download: ""
 });
       const btnOpen = create("a", { text: "Open link", href: mediaUrl || "#", target: "_blank", style: "padding:8px 12px;border-radius:8px;background:transparent;color:#63B3ED;border:1px solid rgba(255,255,255,0.06);text-decoration:none;display:inline-block" });
 
