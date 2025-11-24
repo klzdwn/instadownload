@@ -1,237 +1,90 @@
 <!doctype html>
-<html lang="id">
+<html>
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>IG Downloader — Test</title>
-<style>
-  :root{
-    --bg:#061021; --card:#0f1724; --muted:#98a4b2; --accent:#5b8cff; --danger:#ff6b6b;
-    --glass: rgba(255,255,255,0.03);
-  }
-  html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;color:#e6eef8;background:
-    radial-gradient(80% 60% at 10% 10%, rgba(91,140,255,0.08), transparent 10%),
-    linear-gradient(180deg,var(--bg), #02040a);}
-
-  .wrap{max-width:760px;margin:36px auto;padding:20px;}
-  .card{background:linear-gradient(180deg,var(--card), #07101a);border-radius:14px;padding:20px;box-shadow:0 6px 30px rgba(0,0,0,0.6);}
-  h1{margin:0 0 8px;font-size:28px}
-  p.lead{color:var(--muted);margin:0 0 18px}
-  form{display:flex;gap:10px;flex-wrap:wrap}
-  input[type="url"]{flex:1;min-width:220px;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:var(--glass);color:#fff;outline:none}
-  button.primary{background:linear-gradient(90deg,var(--accent),#3bb0ff);border:0;padding:10px 16px;border-radius:10px;color:#012;cursor:pointer;font-weight:600}
-  button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.05);padding:10px 12px;border-radius:10px;color:var(--muted);cursor:pointer}
-  .hint{margin-top:12px;color:var(--muted)}
-  .result{margin-top:18px;color:#d8e9ff}
-  .error{color:var(--danger);margin-top:12px}
-  .grid{display:grid;gap:12px;margin-top:12px}
-  .media-card{background:rgba(255,255,255,0.02);padding:12px;border-radius:10px;display:flex;gap:12px;align-items:center}
-  .thumb{width:160px;height:90px;border-radius:8px;object-fit:cover;background:#000}
-  .meta{flex:1}
-  .meta small{display:block;color:var(--muted);margin-top:6px}
-  .actions{display:flex;gap:8px;margin-top:8px}
-  .btn{padding:8px 10px;border-radius:8px;border:0;cursor:pointer}
-  .btn.open{background:#ffffff14;color:#bfe0ff}
-  .btn.dl{background:linear-gradient(90deg,#28d7a8,#11b886);color:#022}
-  .spinner{display:inline-block;width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,0.08);border-top-color:var(--accent);animation:spin 1s linear infinite;vertical-align:middle;margin-left:8px}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  pre.snippet{margin-top:12px;background:#020814;padding:12px;border-radius:8px;color:#cfe5ff;white-space:pre-wrap;max-height:300px;overflow:auto;font-size:12px}
-  footer{margin-top:28px;color:var(--muted);font-size:13px;text-align:center}
-  @media(max-width:520px){
-    .thumb{width:120px;height:80px}
-  }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IG Downloader - Test</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto; background:#0b0f16;color:#e6eef8; padding:28px}
+    .card{max-width:720px;margin:24px auto;padding:20px;border-radius:12px;background:linear-gradient(180deg,#0f1720, #0b1015); box-shadow: 0 6px 30px rgba(0,0,0,.6)}
+    input[type=text]{width:100%;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.06);background:#071018;color:#fff}
+    button{padding:10px 14px;border-radius:8px;border:0;background:linear-gradient(90deg,#4f9fff,#7c6bff);color:#fff;cursor:pointer}
+    .muted{color:#9fb0c8;font-size:14px;margin-top:10px}
+    .error{color:#ff6b6b;margin-top:12px}
+    pre{background:#051018;padding:12px;border-radius:8px;color:#bfe0ff;overflow:auto}
+  </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>IG Downloader — Test</h1>
-      <p class="lead">Tempel link posting / reel / foto publik Instagram lalu tekan <strong>Cari media</strong>.</p>
+  <div class="card">
+    <h2>IG Downloader — Test</h2>
+    <p class="muted">Tempel link posting/reel/foto publik Instagram lalu tekan "Cari media".</p>
 
-      <form id="form">
-        <input id="url" type="url" placeholder="https://www.instagram.com/reel/..." required />
-        <button id="searchBtn" class="primary" type="submit">Cari media</button>
-        <button id="clearBtn" type="button" class="ghost">Hapus</button>
-      </form>
-
-      <div class="hint">Jika error, coba ulang beberapa saat — atau lihat cuplikan response di bawah untuk debug.</div>
-
-      <div id="status" class="result" aria-live="polite"></div>
-      <div id="error" class="error" aria-live="polite"></div>
-
-      <div id="grid" class="grid"></div>
-
-      <pre id="snippet" class="snippet" style="display:none"></pre>
+    <div style="margin-top:12px">
+      <input id="urlInput" type="text" placeholder="https://www.instagram.com/reel/..." value="" />
     </div>
 
-    <footer>Pastikan backend (/api/extract) sudah mengirim JSON. Jika muncul HTML/snippet, cek logs server.</footer>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button id="btnFetch">Cari media</button>
+      <button id="btnClear" style="background:#222;color:#fff">Hapus</button>
+    </div>
+
+    <div id="status" class="muted" style="margin-top:12px"></div>
+    <div id="error" class="error"></div>
+
+    <div id="result" style="margin-top:16px"></div>
   </div>
 
 <script>
-(async ()=> {
-  const form = document.getElementById('form');
-  const urlInput = document.getElementById('url');
+  const btn = document.getElementById('btnFetch');
+  const clearBtn = document.getElementById('btnClear');
+  const urlInput = document.getElementById('urlInput');
   const statusEl = document.getElementById('status');
   const errorEl = document.getElementById('error');
-  const grid = document.getElementById('grid');
-  const snippet = document.getElementById('snippet');
-  const searchBtn = document.getElementById('searchBtn');
-  const clearBtn = document.getElementById('clearBtn');
+  const resultEl = document.getElementById('result');
 
-  clearBtn.addEventListener('click', () => {
+  clearBtn.onclick = () => {
     urlInput.value = '';
     statusEl.textContent = '';
     errorEl.textContent = '';
-    grid.innerHTML = '';
-    snippet.style.display = 'none';
-    snippet.textContent = '';
-  });
+    resultEl.innerHTML = '';
+  };
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const raw = urlInput.value.trim();
-    if(!raw){
-      errorEl.textContent = 'Masukkan URL Instagram terlebih dahulu.';
-      return;
-    }
-    statusEl.innerHTML = 'Mencari media <span class="spinner" aria-hidden="true"></span>';
+  btn.onclick = async () => {
     errorEl.textContent = '';
-    grid.innerHTML = '';
-    snippet.style.display = 'none';
-    snippet.textContent = '';
+    statusEl.textContent = 'Loading...';
+    resultEl.innerHTML = '';
+    const url = urlInput.value.trim();
+    if (!url) { errorEl.textContent = "Masukkan URL Instagram"; statusEl.textContent=''; return; }
 
     try {
-      // panggil endpoint backend kamu (sama origin) -> /api/extract?url=...
-      const endpoint = `/api/extract?url=${encodeURIComponent(raw)}`;
-      const res = await fetch(endpoint, { method: 'GET' });
-
-      const text = await res.text(); // ambil raw text dulu
-
-      // coba parse JSON
-      let payload;
-      try {
-        payload = JSON.parse(text);
-      } catch(parseErr){
-        // bukan JSON -> tampilkan cuplikan untuk debug (mis: HTML login challenge / rate-limit)
-        statusEl.textContent = '';
-        errorEl.textContent = 'Network error: server tidak mengembalikan JSON. Lihat cuplikan di bawah.';
-        snippet.style.display = 'block';
-        // potong panjangnya agar tidak panjang sekali
-        snippet.textContent = (text.length > 20000) ? text.slice(0,20000) + '\n\n...(truncated)' : text;
-        return;
-      }
-
-      // sekarang payload adalah JSON
-      statusEl.textContent = '';
-      if(payload.error){
-        errorEl.textContent = payload.error || 'Server mengembalikan error';
-        // jika ada snippet di payload (sumber debug), tampilkan
-        if(payload.snippet) {
-          snippet.style.display = 'block';
-          snippet.textContent = payload.snippet;
-        }
-        return;
-      }
-
-      // struktur yang kita harapkan: { status:200, data: { data: [ {thumb, media, isVideo} ] } }
-      const items = (payload?.data?.data) || payload?.data || [];
-      if(!items || items.length === 0){
-        errorEl.textContent = 'Media tidak ditemukan (mungkin private atau struktur berubah).';
-        return;
-      }
-
-      // render
-      grid.innerHTML = '';
-      items.forEach((it, idx) => {
-        const mediaUrl = it.media || it.url || it.src || it.video || it.direct || '';
-        const thumb = it.thumb || it.thumbnail || mediaUrl;
-        const isVideo = (typeof it.isVideo !== 'undefined') ? !!it.isVideo : (/\.(mp4|m3u8|mov)(\?|$)/i.test(mediaUrl));
-
-        const card = document.createElement('div');
-        card.className = 'media-card';
-
-        const mediaEl = document.createElement(isVideo ? 'video' : 'img');
-        mediaEl.className = 'thumb';
-        if(isVideo){
-          mediaEl.setAttribute('controls','');
-          mediaEl.setAttribute('playsinline','');
-          mediaEl.src = mediaUrl;
-        } else {
-          mediaEl.src = thumb || mediaUrl;
-          mediaEl.alt = 'thumbnail';
-        }
-
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        const title = document.createElement('div');
-        title.textContent = isVideo ? `Video #${idx+1}` : `Image #${idx+1}`;
-        const small = document.createElement('small');
-        small.textContent = `URL: ${mediaUrl.split('?')[0]}`;
-
-        const actions = document.createElement('div');
-        actions.className = 'actions';
-
-        const openBtn = document.createElement('button');
-        openBtn.className = 'btn open';
-        openBtn.textContent = 'Buka';
-        openBtn.addEventListener('click', () => {
-          window.open(mediaUrl, '_blank');
-        });
-
-        const dlBtn = document.createElement('button');
-        dlBtn.className = 'btn dl';
-        dlBtn.textContent = 'Download';
-        dlBtn.addEventListener('click', async () => {
-          // coba fetch blob (kadang cross-origin gagal) -> fallback open
-          dlBtn.disabled = true;
-          const prev = dlBtn.textContent;
-          dlBtn.textContent = 'Menyiapkan...';
-          try {
-            const r = await fetch(mediaUrl);
-            if(!r.ok) throw new Error('Gagal fetch media');
-            const blob = await r.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            // set file name sederhana
-            a.download = (isVideo ? `instagram_video_${idx+1}.mp4` : `instagram_image_${idx+1}.jpg`);
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-          } catch(err){
-            // fallback: buka tab baru (user bisa simpan manual)
-            window.open(mediaUrl, '_blank');
-            console.warn('download fallback', err);
-          } finally {
-            dlBtn.disabled = false;
-            dlBtn.textContent = prev;
-          }
-        });
-
-        actions.appendChild(openBtn);
-        actions.appendChild(dlBtn);
-
-        meta.appendChild(title);
-        meta.appendChild(small);
-        meta.appendChild(actions);
-
-        card.appendChild(mediaEl);
-        card.appendChild(meta);
-
-        grid.appendChild(card);
+      const res = await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
       });
 
-      statusEl.textContent = 'Sukses — lihat hasil di bawah';
-      statusEl.style.color = '#b6f7d6';
-    } catch(err){
-      console.error(err);
-      errorEl.textContent = 'Terjadi kesalahan saat menghubungi server.';
-      snippet.style.display = 'block';
-      snippet.textContent = String(err);
+      const text = await res.text();
+
+      // try parse JSON; if not, show snippet for debug
+      try {
+        const data = JSON.parse(text);
+        statusEl.textContent = 'Sukses — lihat hasil di bawah';
+        resultEl.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+      } catch (e) {
+        // non-json response (maybe HTML snippet). show first chunk to debug.
+        errorEl.textContent = 'Network error: Upstream returned non-JSON (lihat debug di bawah)';
+        resultEl.innerHTML = '<pre>' + escapeHtml(text.slice(0, 2000)) + '</pre>';
+        statusEl.textContent = '';
+      }
+    } catch (err) {
+      errorEl.textContent = 'Request failed: ' + err.message;
+      statusEl.textContent = '';
     }
-  });
-})();
+  };
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
 </script>
 </body>
 </html>
