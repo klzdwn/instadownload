@@ -1,7 +1,5 @@
-// script.js
-// Frontend minimal: find input/button, call /api/extract, render results
+// script.js (updated) - improved thumbnail handling with proxy fallbacks
 (function () {
-  // small helpers
   const el = (sel, root = document) => root.querySelector(sel);
   const create = (tag, attrs = {}, children = []) => {
     const e = document.createElement(tag);
@@ -16,10 +14,8 @@
     return e;
   };
 
-  // tries to detect thumbnail fields in API objects
   function detectThumb(item) {
     if (!item) return null;
-    // common keys used by API responses
     return item.thumb || item.thumbnail || item.preview || item.poster || item.poster_url || item.thumb_url || null;
   }
 
@@ -29,7 +25,6 @@
     return item.media || item.url || item.video || item.src || (Array.isArray(item.urls) && item.urls[0]) || "";
   }
 
-  // find input + button(s) and where to render results
   function findControls() {
     const input =
       el('input[type="url"]') ||
@@ -51,7 +46,6 @@
     return { input, searchBtn, resultContainer };
   }
 
-  // render helpers
   function clearResult(container) {
     if (!container) return;
     container.innerHTML = "";
@@ -69,6 +63,14 @@
     return msg;
   }
 
+  // build a proxied thumb URL (tries multiple proxy endpoints if available)
+  function buildProxiedThumbUrl(originalUrl) {
+    if (!originalUrl || !/^https?:\/\//i.test(originalUrl)) return "";
+    // prefer /api/proxy-thumb then /api/thumb then fallback to original
+    // Note: keep these endpoints in your backend (see instructions)
+    return `/api/proxy-thumb?url=${encodeURIComponent(originalUrl)}`;
+  }
+
   function renderMediaList(container, json) {
     clearResult(container);
     const payload = (json && json.data) ? json.data : json;
@@ -77,7 +79,6 @@
     header.textContent = "Sukses — lihat hasil di bawah";
     container.appendChild(header);
 
-    // find items array in response
     let items = [];
     if (Array.isArray(payload)) items = payload;
     else if (payload && Array.isArray(payload.data)) items = payload.data;
@@ -92,18 +93,32 @@
     items.forEach((it, idx) => {
       const card = create("div", { style: "background:rgba(255,255,255,0.03);padding:14px;border-radius:12px;margin-bottom:12px;display:flex;gap:12px;align-items:center;" });
 
-      // thumbnail
+      // thumbnail area
       const thumbWrap = create("div", { style: "width:96px;height:96px;flex:0 0 96px;border-radius:8px;overflow:hidden;background:#061018;display:flex;align-items:center;justify-content:center" });
       const thumbSrc = detectThumb(it);
       if (thumbSrc) {
-        // proxy through server to avoid IG CDN blocking
-        const proxied = `/api/thumb?url=${encodeURIComponent(thumbSrc)}`;
+        // try proxied path first
+        const proxied = buildProxiedThumbUrl(thumbSrc);
         const img = create("img", { src: proxied, style: "width:100%;height:100%;object-fit:cover;display:block" });
-        // fallback if image fails to load
+
+        // if proxied 404 or blocked, fallback to original url
         img.onerror = () => {
-          thumbWrap.innerHTML = "";
-          thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:13px" }));
+          // replace with original url attempt (no proxy). This may still fail if IG blocks hotlinking.
+          if (img.src !== thumbSrc) {
+            img.src = thumbSrc;
+            // second onerror: show placeholder
+            img.onerror = () => {
+              thumbWrap.innerHTML = "";
+              thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:13px" }));
+            };
+          } else {
+            thumbWrap.innerHTML = "";
+            thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:13px" }));
+          }
         };
+
+        // small accessibility alt
+        img.alt = `thumb-${idx+1}`;
         thumbWrap.appendChild(img);
       } else {
         thumbWrap.appendChild(create("div", { text: "no thumb", style: "color:#9aa4b2;font-size:13px" }));
@@ -120,21 +135,21 @@
       const meta = create("div", { text: `${typeText} • ${mediaUrl}`, style: "font-size:12px;color:#CBD5E0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" });
       info.appendChild(meta);
 
-      // buttons row
+      // buttons
       const row = create("div", { style: "margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" });
       const btnPreview = create("button", { text: "Preview", style: "padding:8px 12px;border-radius:8px;background:#1A202C;color:#fff;border:none;cursor:pointer" });
       const btnDownload = create("a", { text: "Download", href: mediaUrl || "#", style: "padding:8px 12px;border-radius:8px;background:#6B46C1;color:#fff;text-decoration:none;display:inline-block" });
       const btnOpen = create("a", { text: "Open link", href: mediaUrl || "#", target: "_blank", style: "padding:8px 12px;border-radius:8px;background:transparent;color:#63B3ED;border:1px solid rgba(255,255,255,0.06);text-decoration:none;display:inline-block" });
 
-      // if download link is same-origin and safe, add download attribute
+      // download behavior: if same-origin -> set download, else open in new tab
       try {
         if (mediaUrl && mediaUrl.startsWith(window.location.origin)) {
           btnDownload.setAttribute("download", "");
         } else {
-          // for cross-origin we just open link in new tab when clicked
           btnDownload.addEventListener("click", (e) => {
             e.preventDefault();
             if (!mediaUrl) return alert("No media URL");
+            // if you have a dedicated download proxy, use it here (eg /api/download?url=...)
             window.open(mediaUrl, "_blank");
           });
         }
@@ -142,7 +157,6 @@
         // ignore
       }
 
-      // preview action (open lightbox)
       btnPreview.addEventListener("click", () => {
         showLightbox(mediaUrl, typeText);
       });
@@ -158,7 +172,6 @@
     });
   }
 
-  // simple lightbox
   function showLightbox(url, type) {
     if (!url) return alert("No media URL");
     const overlay = create("div", {
@@ -181,7 +194,6 @@
     document.body.appendChild(overlay);
   }
 
-  // main flow
   async function main() {
     const { input, searchBtn, resultContainer } = findControls();
     if (!input || !searchBtn) {
@@ -189,7 +201,6 @@
       return;
     }
 
-    // attach click
     searchBtn.addEventListener("click", async (ev) => {
       ev.preventDefault();
       const rawUrl = (input.value || "").trim();
@@ -232,9 +243,7 @@
           return;
         }
 
-        // ok render
         renderMediaList(resultContainer, json);
-
       } catch (err) {
         clearResult(resultContainer);
         showMessage(resultContainer, "Gagal request ke backend: " + (err.message || err), "error");
@@ -242,7 +251,6 @@
       }
     });
 
-    // optional: clear button support (detect button by text or id)
     const clearBtn = Array.from(document.querySelectorAll("button,input[type=button]"))
       .find(b => /hapus|clear|reset/i.test((b.textContent || b.value || "").trim()) || b.id === "btnClear");
 
@@ -256,7 +264,6 @@
     }
   }
 
-  // run
   document.addEventListener("DOMContentLoaded", main);
   if (document.readyState === "interactive" || document.readyState === "complete") main();
 })();
