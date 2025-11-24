@@ -9,8 +9,8 @@ document.getElementById("btnFetch").addEventListener("click", async () => {
     }
 
     try {
-        const api = `https://snapinsta.app/action.php?url=${encodeURIComponent(url)}&type=instagram`;
-
+        const api = `/api/snap?url=${encodeURIComponent(url)}`;
+const res = await fetch(api);
         const res = await fetch(api);
         const html = await res.text();
 
