@@ -1,59 +1,53 @@
-body {
-  background: #f7f7fb;
-  font-family: Arial, sans-serif;
-  padding: 30px;
+body{
+  background:#0b0f14;
+  color:white;
+  font-family:Arial;
+  margin:0;
 }
-
-.container {
-  max-width: 650px;
-  margin: auto;
-  text-align: center;
+.wrap{
+  max-width:500px;
+  margin:40px auto;
+  text-align:center;
 }
-
-.input-box {
-  display: flex;
-  gap: 10px;
-  margin: 20px 0;
+input{
+  width:100%;
+  padding:12px;
+  border-radius:8px;
+  border:none;
+  margin-top:10px;
 }
-
-input {
-  flex: 1;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid #ccc;
-  font-size: 15px;
+button{
+  margin-top:10px;
+  padding:10px 16px;
+  border-radius:8px;
+  border:none;
+  cursor:pointer;
+  background:#6d4bff;
+  color:white;
 }
-
-button {
-  padding: 12px 18px;
-  background: #6f42f5;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
+#btnClear{
+  background:#222;
 }
-
-.card {
-  background: white;
-  padding: 15px;
-  border-radius: 10px;
-  margin-top: 20px;
-  text-align: left;
-  border: 1px solid #eee;
+.card{
+  background:#111;
+  padding:16px;
+  border-radius:12px;
+  display:flex;
+  gap:12px;
+  margin-top:15px;
 }
-
-.media-img {
-  width: 100%;
-  border-radius: 8px;
-  margin: 10px 0;
+.thumb{
+  width:90px;
+  height:90px;
+  object-fit:cover;
+  border-radius:8px;
 }
-
-.download-btn {
-  display: inline-block;
-  padding: 10px 15px;
-  background: #00b06b;
-  color: white;
-  border-radius: 8px;
-  text-decoration: none;
-  margin-top: 10px;
+.btns a{
+  display:inline-block;
+  padding:6px 10px;
+  background:#6d4bff;
+  color:white;
+  text-decoration:none;
+  border-radius:6px;
+  margin-right:6px;
 }
