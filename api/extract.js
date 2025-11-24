@@ -1,96 +1,104 @@
-// script.js - frontend
-const elUrl = document.getElementById('url');
-const btn = document.getElementById('go');
-const clearBtn = document.getElementById('clear');
-const statusEl = document.getElementById('status');
-const errEl = document.getElementById('error');
-const resultsEl = document.getElementById('results');
-const snippetEl = document.getElementById('snippet');
+// /api/extract.js
+// Vercel serverless function — POST only
+export default async function handler(req, res) {
+  // CORS (ubah origin jika perlu)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-function showStatus(msg=''){ statusEl.style.display = msg ? 'block' : 'none'; statusEl.textContent = msg; }
-function showError(msg=''){ errEl.style.display = msg ? 'block' : 'none'; errEl.textContent = msg; }
-function showSnippet(txt){ snippetEl.style.display = txt ? 'block' : 'none'; snippetEl.textContent = txt || ''; }
-function showResults(html){ resultsEl.style.display = html ? 'block' : 'none'; resultsEl.innerHTML = html || ''; }
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
 
-clearBtn.addEventListener('click', () => {
-  elUrl.value = '';
-  showResults('');
-  showError('');
-  showStatus('');
-  showSnippet('');
-});
-
-btn.addEventListener('click', async () => {
-  showError(''); showSnippet(''); showResults('');
-  const url = elUrl.value.trim();
-  if (!url) { showError('Masukkan URL Instagram terlebih dahulu'); return; }
-  showStatus('Memproses...');
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed, use POST" });
+  }
 
   try {
-    const res = await fetch('/api/extract', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ url })
+    // --- robust body parsing ---
+    let body = req.body;
+    if (!body || (typeof body === "object" && Object.keys(body).length === 0)) {
+      if (req.on) {
+        body = await new Promise((resolve) => {
+          let raw = "";
+          req.on("data", (c) => (raw += c));
+          req.on("end", () => {
+            try { resolve(JSON.parse(raw || "{}")); }
+            catch { resolve({}); }
+          });
+        });
+      } else {
+        body = {};
+      }
+    }
+
+    const url = (body && body.url) ? String(body.url).trim() : null;
+    if (!url) {
+      return res.status(400).json({ error: "Missing 'url' in request body" });
+    }
+
+    // --- env ---
+    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+    const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "instagram-downloader-scraper-reels-igtv-posts-stories.p.rapidapi.com";
+
+    if (!RAPIDAPI_KEY) {
+      console.error("RAPIDAPI_KEY not set in environment");
+      return res.status(500).json({ error: "Server not configured (missing RAPIDAPI_KEY)" });
+    }
+
+    // build target (provider's scraper endpoint)
+    const endpoint = `https://${RAPIDAPI_HOST}/scraper?url=${encodeURIComponent(url)}`;
+
+    // --- fetch with timeout ---
+    const controller = new AbortController();
+    const timeoutMs = 15000; // 15s
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    let upstream;
+    try {
+      upstream = await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          "x-rapidapi-host": RAPIDAPI_HOST,
+          "x-rapidapi-key": RAPIDAPI_KEY,
+          "Accept": "application/json"
+        },
+        signal: controller.signal
+      });
+    } catch (fetchErr) {
+      clearTimeout(timeout);
+      console.error("Fetch to RapidAPI failed:", fetchErr && fetchErr.message ? fetchErr.message : fetchErr);
+      if (fetchErr && fetchErr.name === "AbortError") {
+        return res.status(504).json({ error: "Upstream timeout" });
+      }
+      return res.status(502).json({ error: "Failed to reach upstream provider", detail: String(fetchErr) });
+    }
+    clearTimeout(timeout);
+
+    const raw = await upstream.text().catch((e) => {
+      console.error("Failed reading upstream text:", e);
+      return "";
     });
 
-    const text = await res.text(); // ambil text dulu
-    let json;
-    try { json = JSON.parse(text); } catch(e) {
-      // non-json dari backend -> tampilkan snippet untuk debug
-      showStatus('');
-      showError('Upstream tidak mengembalikan JSON. Cek snippet di bawah.');
-      showSnippet(text.slice(0, 4000));
-      return;
+    // try parse JSON
+    try {
+      const data = JSON.parse(raw);
+      // normal success: forward status + data
+      return res.status(200).json({ status: upstream.status, data });
+    } catch (parseErr) {
+      // upstream didn't return JSON (likely HTML/login/challenge) -> give snippet for debug
+      const snippet = (typeof raw === "string" && raw.length) ? raw.slice(0, 4000) : "";
+      console.error("Upstream returned non-JSON response. status:", upstream.status);
+      return res.status(502).json({
+        error: "Upstream returned non-JSON response",
+        status: upstream.status,
+        snippet
+      });
     }
-
-    if (!res.ok) {
-      showStatus('');
-      const msg = json.error || json.message || `Server error (${res.status})`;
-      showError(msg);
-      if (json.snippet) showSnippet(json.snippet);
-      return;
-    }
-
-    showStatus('Sukses — lihat hasil di bawah');
-    showError('');
-
-    // format result: sesuaikan struktur yang dikembalikan server
-    // expected: { status: 200, data: { data: [ { thumb, media, isVideo } ] } }
-    const payload = json.data || json;
-    const items = (payload.data && payload.data.data) || (payload.data) || [];
-
-    if (!items || items.length === 0) {
-      showResults('<div class="meta">Tidak ada media ditemukan.</div>');
-      return;
-    }
-
-    // buat cards
-    let out = '';
-    items.forEach((it, idx) => {
-      const thumb = it.thumb || it.thumbnail || '';
-      const media = it.media || it.url || it.src || '';
-      const isVideo = !!it.isVideo || !!it.is_video || (media && media.endsWith('.mp4'));
-      out += `
-        <div class="media-card">
-          <img class="thumb" src="${thumb || ''}" alt="thumb ${idx+1}" onerror="this.style.display='none'"/>
-          <div class="meta">
-            <div><strong>Media #${idx+1}</strong></div>
-            <div class="meta">${isVideo ? 'video' : 'image'} • <small style="word-break:break-all">${media}</small></div>
-            <div class="btns">
-              ${isVideo ? `<button onclick="window.open('${media}','_blank')">Preview</button>` : `<a href="${media}" target="_blank" rel="noopener">Open</a>`}
-              <a href="${media}" download>Download</a>
-              <a href="${media}" target="_blank" rel="noopener">Open link</a>
-            </div>
-          </div>
-        </div>
-        <hr style="border:none;margin:12px 0;border-top:1px solid rgba(255,255,255,0.04)"/>
-      `;
-    });
-
-    showResults(out);
 
   } catch (err) {
-    showStatus('');
-    showError('Gagal menghubungi server: ' + (err.message || err));
+    // top-level catch (shouldn't happen often)
+    console.error("extract handler fatal error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ error: "Internal server error", code: "FUNCTION_INVOCATION_FAILED" });
   }
-});
+}
