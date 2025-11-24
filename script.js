@@ -1,85 +1,146 @@
-(function(){
-  const urlInput = document.getElementById('url');
-  const btnDownload = document.getElementById('btnDownload');
-  const btnClear = document.getElementById('btnClear');
-  const status = document.getElementById('status');
-  const fab = document.getElementById('fab');
+// script.js
+const el = id => document.getElementById(id);
+const btn = el('btnFetch');
+const clear = el('btnClear');
+const input = el('url');
+const status = el('status');
+const results = el('results');
+const debug = el('debug');
 
-  function setStatus(html){ status.innerHTML = html }
-  function setLoading(is){
-    btnDownload.disabled = is;
-    btnDownload.textContent = is ? 'Mencari...' : 'Download';
-  }
-  function escapeHtml(s){
-    return String(s).replace(/[&<>\"']/g, c => ({
-      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-    }[c]));
-  }
+function setStatus(s, isError = false) {
+  status.textContent = s || '';
+  status.style.color = isError ? 'salmon' : '';
+}
 
-  btnClear.addEventListener('click', () => {
-    urlInput.value = '';
-    setStatus('');
-  });
+function makeMediaCard(item, idx) {
+  // item: expects { thumb, media, isVideo, maybe type/width/height }
+  const wrap = document.createElement('div');
+  wrap.className = 'media-card';
+  const img = document.createElement('img');
+  img.className = 'media-thumb';
+  img.alt = `thumb-${idx}`;
+  img.src = item.thumb || '';
+  // fallback to proxy image if blocked
+  img.onerror = () => {
+    if (item.thumb) {
+      img.src = '/api/proxy-image?url=' + encodeURIComponent(item.thumb);
+    } else {
+      img.style.display = 'none';
+    }
+  };
 
-  btnDownload.addEventListener('click', async () => {
-    const url = urlInput.value.trim();
-    if(!url){
-      setStatus('<div style="color:#ffd2a8">Masukkan link Instagram dulu.</div>');
+  const info = document.createElement('div');
+  info.className = 'media-info';
+  const title = document.createElement('div');
+  title.style.color = '#fff';
+  title.textContent = `Media #${idx+1}`;
+  const meta = document.createElement('div');
+  meta.textContent = (item.isVideo ? 'video' : 'image') + ' • ' + (item.media || '');
+  meta.style.wordBreak = 'break-all';
+  meta.style.fontSize = '13px';
+  meta.style.marginTop = '6px';
+
+  const actions = document.createElement('div');
+  actions.className = 'media-actions';
+
+  const previewBtn = document.createElement('button');
+  previewBtn.className = 'small-btn';
+  previewBtn.textContent = 'Preview';
+  previewBtn.onclick = () => window.open(item.media, '_blank');
+
+  const downloadBtn = document.createElement('a');
+  downloadBtn.className = 'small-btn';
+  downloadBtn.textContent = 'Download';
+  downloadBtn.href = item.media || '#';
+  downloadBtn.setAttribute('download', '');
+  downloadBtn.target = '_blank';
+  downloadBtn.rel = 'noopener';
+
+  const openLink = document.createElement('a');
+  openLink.href = item.media || '#';
+  openLink.className = 'link';
+  openLink.textContent = 'Open link';
+  openLink.target = '_blank';
+  openLink.rel = 'noopener';
+
+  actions.appendChild(previewBtn);
+  actions.appendChild(downloadBtn);
+  actions.appendChild(openLink);
+
+  info.appendChild(title);
+  info.appendChild(meta);
+  info.appendChild(actions);
+
+  wrap.appendChild(img);
+  wrap.appendChild(info);
+  return wrap;
+}
+
+async function callExtract(url) {
+  setStatus('Mencari media ...');
+  debug.style.display = 'none';
+  debug.textContent = '';
+  results.innerHTML = '';
+  try {
+    const res = await fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+
+    const txt = await res.text();
+    let json;
+    try { json = JSON.parse(txt); } catch(e) { json = null; }
+
+    if (!json) {
+      setStatus('Upstream tidak mengembalikan JSON. Cek debug.', true);
+      debug.style.display = 'block';
+      debug.textContent = txt.slice(0, 4000);
       return;
     }
 
-    if(!/^https?:\/\/(www\.)?instagram\.com\/.+/i.test(url)){
-      setStatus('<div style="color:#ffb4b4">URL bukan link Instagram.</div>');
+    if (res.status >= 400) {
+      setStatus(json.error || 'Error dari backend', true);
+      debug.style.display = 'block';
+      debug.textContent = JSON.stringify(json, null, 2);
       return;
     }
 
-    setLoading(true);
-    setStatus('<div style="color:#ccc">Mengambil media...</div>');
+    // response shape: { status: 200, data: { data: [{thumb, media, isVideo}, ...] } }
+    const payload = json.data || json;
+    // try to locate common structures
+    const items = (payload.data && Array.isArray(payload.data)) ? payload.data : (payload.media && Array.isArray(payload.media) ? payload.media : null);
 
-    try{
-      const resp = await fetch('/api/extract', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({url})
-      });
-
-      const data = await resp.json();
-      if(!resp.ok) throw new Error(data.error || 'Server error');
-
-      const media = data.media_url;
-      if(!media) throw new Error('Tidak ada media ditemukan');
-
-      const isVideo = /\.(mp4|webm|m3u8)/i.test(media) || /video/.test(media);
-      const safe = escapeHtml(media);
-
-      const html = `
-        <div class="card-preview">
-          <div class="meta">
-            <div class="chip">${isVideo ? 'Video' : 'Gambar'}</div>
-          </div>
-          ${
-            isVideo
-              ? `<video class="preview-media" controls src="${safe}"></video>`
-              : `<img class="preview-media" src="${safe}">`
-          }
-          <div class="links">
-            <a class="open" href="${safe}" target="_blank">Buka</a>
-            <a class="direct" href="${safe}" download>Download</a>
-          </div>
-        </div>
-      `;
-
-      setStatus(html);
-
-    }catch(err){
-      setStatus('<div style="color:#ff7a7a">' + escapeHtml(err.message) + '</div>');
+    if (!items) {
+      setStatus('Tidak ada media ditemukan', true);
+      debug.style.display = 'block';
+      debug.textContent = JSON.stringify(json, null, 2);
+      return;
     }
 
-    setLoading(false);
-  });
+    setStatus('Sukses — lihat hasil di bawah', false);
 
-  fab.addEventListener('click', (e)=>{
-    e.preventDefault();
-    alert("Butuh bantuan deploy / backend IG extractor? Chat saya.");
-  });
-})();
+    items.forEach((it, i) => {
+      // provider might return media objects or strings
+      const item = (typeof it === 'string') ? { media: it, thumb: it } : it;
+      const card = makeMediaCard(item, i);
+      results.appendChild(card);
+    });
+
+  } catch (err) {
+    console.error(err);
+    setStatus('Gagal memanggil backend: ' + (err.message || err), true);
+  }
+}
+
+btn.addEventListener('click', () => {
+  const url = input.value && input.value.trim();
+  if (!url) return setStatus('Masukkan URL Instagram dulu', true);
+  callExtract(url);
+});
+clear.addEventListener('click', () => {
+  input.value = '';
+  results.innerHTML = '';
+  setStatus('');
+  debug.style.display = 'none';
+});
