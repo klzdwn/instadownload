@@ -1,199 +1,393 @@
-// /api/extract.js
-// Vercel serverless: POST { url } -> JSON { data: [ { thumb, media, isVideo }, ... ] }
-// No RapidAPI required — this scrapes public Instagram page HTML and extracts JSON.
+// script.js — FULL FIXED VERSION
+(function () {
+  // Helpers
+  const el = (sel, root = document) => root.querySelector(sel);
+  const create = (tag, attrs = {}, children = []) => {
+    const e = document.createElement(tag);
+    Object.entries(attrs).forEach(([k, v]) => {
+      if (k === "text") e.textContent = v;
+      else if (k === "html") e.innerHTML = v;
+      else if (k === "style") e.style.cssText = v;
+      else if (k === "class") e.className = v;
+      else e.setAttribute(k, v);
+    });
+    children.forEach(c => e.appendChild(c));
+    return e;
+  };
 
-export default async function handler(req, res) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  // Detect thumbnail fields from API
+  function detectThumb(item) {
+    if (!item) return null;
+    return (
+      item.thumb ||
+      item.thumbnail ||
+      item.preview ||
+      item.poster ||
+      item.poster_url ||
+      item.thumb_url ||
+      null
+    );
+  }
 
-  if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed, use POST" });
+  function detectMediaUrl(item) {
+    if (!item) return "";
+    if (typeof item === "string") return item;
+    return (
+      item.media ||
+      item.url ||
+      item.video ||
+      item.src ||
+      (Array.isArray(item.urls) && item.urls[0]) ||
+      ""
+    );
+  }
 
-  try {
-    const body = typeof req.body === "object" ? req.body : JSON.parse(req.body || "{}");
-    const url = body && body.url ? String(body.url).trim() : "";
-    if (!url) return res.status(400).json({ error: "Missing 'url' in request body" });
+  // Detect controls
+  function findControls() {
+    const input =
+      el('input[type="url"]') ||
+      el('input[type="text"]') ||
+      el('input[name="url"]') ||
+      document.querySelector("input");
 
-    // Normalize (ensure http(s) present)
-    let target = url;
-    if (!/^https?:\/\//i.test(target)) target = "https://" + target.replace(/^\/+/, "");
+    const buttons = Array.from(
+      document.querySelectorAll("button,input[type=button],input[type=submit]")
+    );
+    let searchBtn = buttons.find(b =>
+      /cari|search|find|download/i.test(
+        (b.textContent || b.value || "").trim()
+      )
+    );
+    if (!searchBtn) searchBtn = el("#btnFetch") || buttons[0] || null;
 
-    // fetch Instagram page with UA to reduce bot blocks
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    let resultContainer = el("#results") || el(".results") || el("#ig-result");
+    if (!resultContainer) {
+      resultContainer = create("div", {
+        id: "results",
+        style: "margin-top:18px;max-width:840px;"
+      });
+      if (input && input.parentNode)
+        input.parentNode.insertBefore(resultContainer, input.nextSibling);
+      else document.body.appendChild(resultContainer);
+    }
 
-    const resp = await fetch(target, {
-      method: "GET",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml",
-        "Accept-Language": "en-US,en;q=0.9"
-      },
-      signal: controller.signal
-    }).catch(err => {
-      clearTimeout(timeout);
-      throw err;
+    return { input, searchBtn, resultContainer };
+  }
+
+  // Clear results
+  function clearResult(container) {
+    if (!container) return;
+    container.innerHTML = "";
+  }
+
+  function showMessage(container, text, type = "info") {
+    const colors = {
+      info: "#2D3748",
+      success: "#2F855A",
+      error: "#E53E3E"
+    };
+    const bg = colors[type] || colors.info;
+    const msg = create("div", {
+      style: `padding:10px 12px;border-radius:8px;background:${bg};color:#fff;margin-bottom:12px;`
+    });
+    msg.textContent = text;
+    container.appendChild(msg);
+    return msg;
+  }
+
+  // Find first array of objects anywhere inside JSON
+  function findArrayDeep(obj, visited = new WeakSet()) {
+    if (!obj || typeof obj !== "object") return null;
+    if (visited.has(obj)) return null;
+    visited.add(obj);
+
+    if (Array.isArray(obj)) {
+      if (obj.length && obj.every(x => typeof x === "object")) return obj;
+      for (const el of obj) {
+        const found = findArrayDeep(el, visited);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    for (const k in obj) {
+      const found = findArrayDeep(obj[k], visited);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  // Render results
+  function renderMediaList(container, json) {
+    clearResult(container);
+
+    // Show raw JSON debug (max 250 lines)
+    const dbg = create("pre", {
+      text: JSON.stringify(json, null, 2),
+      style:
+        "white-space:pre-wrap;background:#0b1320;color:#bcd;padding:10px;border-radius:8px;margin-bottom:12px;overflow:auto;max-height:260px;font-size:12px;"
+    });
+    container.appendChild(dbg);
+
+    const payload = json.data ? json.data : json;
+
+    // Find items array automatically
+    let items =
+      findArrayDeep(payload) ||
+      (Array.isArray(payload) ? payload : []) ||
+      [];
+
+    if (!items || !items.length) {
+      showMessage(container, "Tidak ada media ditemukan pada response.", "error");
+      return;
+    }
+
+    // Success header
+    const header = create("div", {
+      style: "color:#9AE6B4;margin-bottom:8px;font-weight:600"
+    });
+    header.textContent = "Sukses — lihat hasil di bawah";
+    container.appendChild(header);
+
+    // Render each media card
+    items.forEach((it, idx) => {
+      const card = create("div", {
+        style:
+          "background:rgba(255,255,255,0.03);padding:14px;border-radius:12px;margin-bottom:12px;display:flex;gap:12px;align-items:center;"
+      });
+
+      // Thumbnail
+      const thumbWrap = create("div", {
+        style:
+          "width:96px;height:96px;flex:0 0 96px;border-radius:8px;overflow:hidden;background:#061018;display:flex;align-items:center;justify-content:center"
+      });
+
+      const thumbSrc = detectThumb(it);
+      if (thumbSrc) {
+        const proxied = `/api/proxy-thumb?url=${encodeURIComponent(thumbSrc)}`;
+        const img = create("img", {
+          src: proxied,
+          style: "width:100%;height:100%;object-fit:cover;display:block"
+        });
+
+        img.onerror = () => {
+          if (img.src !== thumbSrc) {
+            img.src = thumbSrc;
+            img.onerror = () => {
+              thumbWrap.innerHTML = "";
+              thumbWrap.appendChild(
+                create("div", {
+                  text: "no thumb",
+                  style: "color:#9aa4b2;font-size:13px"
+                })
+              );
+            };
+          } else {
+            thumbWrap.innerHTML = "";
+            thumbWrap.appendChild(
+              create("div", {
+                text: "no thumb",
+                style: "color:#9aa4b2;font-size:13px"
+              })
+            );
+          }
+        };
+
+        thumbWrap.appendChild(img);
+      } else {
+        thumbWrap.appendChild(
+          create("div", {
+            text: "no thumb",
+            style: "color:#9aa4b2;font-size:13px"
+          })
+        );
+      }
+
+      card.appendChild(thumbWrap);
+
+      // Info column
+      const info = create("div", { style: "flex:1;min-width:0" });
+      const title = create("div", {
+        text: `Media #${idx + 1}`,
+        style: "font-weight:700;color:#E2E8F0;margin-bottom:6px"
+      });
+      info.appendChild(title);
+
+      const mediaUrl = detectMediaUrl(it) || "";
+      const typeText =
+        it.isVideo || /mp4|video/.test(mediaUrl) ? "video" : "image";
+
+      const meta = create("div", {
+        text: `${typeText} • ${mediaUrl}`,
+        style:
+          "font-size:12px;color:#CBD5E0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+      });
+      info.appendChild(meta);
+
+      // Buttons row
+      const row = create("div", {
+        style: "margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"
+      });
+
+      const btnPreview = create("button", {
+        text: "Preview",
+        style:
+          "padding:8px 12px;border-radius:8px;background:#1A202C;color:#fff;border:none;cursor:pointer"
+      });
+
+      const btnDownload = create("a", {
+        text: "Download",
+        href: mediaUrl || "#",
+        style:
+          "padding:8px 12px;border-radius:8px;background:#6B46C1;color:#fff;text-decoration:none;display:inline-block"
+      });
+
+      const btnOpen = create("a", {
+        text: "Open link",
+        href: mediaUrl || "#",
+        target: "_blank",
+        style:
+          "padding:8px 12px;border-radius:8px;background:transparent;color:#63B3ED;border:1px solid rgba(255,255,255,0.06);text-decoration:none;display:inline-block"
+      });
+
+      // Direct download only if same-origin
+      try {
+        if (mediaUrl.startsWith(location.origin)) {
+          btnDownload.setAttribute("download", "");
+        } else {
+          btnDownload.addEventListener("click", e => {
+            e.preventDefault();
+            window.open(mediaUrl, "_blank");
+          });
+        }
+      } catch (e) {}
+
+      // Lightbox preview
+      btnPreview.addEventListener("click", () =>
+        showLightbox(mediaUrl, typeText)
+      );
+
+      row.appendChild(btnPreview);
+      row.appendChild(btnDownload);
+      row.appendChild(btnOpen);
+
+      info.appendChild(row);
+      card.appendChild(info);
+
+      container.appendChild(card);
+    });
+  }
+
+  // Simple lightbox
+  function showLightbox(url, type) {
+    if (!url) return alert("No media URL");
+    const overlay = create("div", {
+      style:
+        "position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:99999;padding:20px;"
     });
 
-    clearTimeout(timeout);
+    const box = create("div", {
+      style: "max-width:100%;max-height:100%;overflow:auto;"
+    });
 
-    if (!resp || !resp.ok) {
-      return res.status(502).json({ error: "Failed fetching Instagram page", status: resp ? resp.status : "no-resp" });
-    }
-
-    const text = await resp.text();
-
-    // try to extract JSON from <script id="__NEXT_DATA__"> ... </script>
-    const nextDataMatch = text.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
-    let jsonObj = null;
-    if (nextDataMatch && nextDataMatch[1]) {
-      try {
-        jsonObj = JSON.parse(nextDataMatch[1]);
-      } catch (e) {
-        // continue
-      }
-    }
-
-    // fallback: window._sharedData = {...};
-    if (!jsonObj) {
-      const sharedMatch = text.match(/window\._sharedData\s*=\s*({[\s\S]*?});\s*<\/script>/i);
-      if (sharedMatch && sharedMatch[1]) {
-        try {
-          jsonObj = JSON.parse(sharedMatch[1]);
-        } catch (e) {
-          // ignore
-        }
-      }
-    }
-
-    // fallback: look for any large JSON script tag (application/ld+json)
-    if (!jsonObj) {
-      const ldMatch = text.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
-      if (ldMatch && ldMatch[1]) {
-        try {
-          const ld = JSON.parse(ldMatch[1]);
-          // wrap in minimal structure
-          jsonObj = { ld };
-        } catch (e) {}
-      }
-    }
-
-    if (!jsonObj) {
-      // give snippet for debug
-      return res.status(502).json({
-        error: "Failed to extract JSON from page (Instagram layout may have changed or blocked).",
-        snippet: text.slice(0, 3000)
+    if (type === "video" || /\.mp4/.test(url)) {
+      const v = create("video", {
+        controls: "",
+        style: "max-width:100%;max-height:80vh;border-radius:8px;background:#000"
       });
+      v.src = url;
+      v.autoplay = true;
+      box.appendChild(v);
+    } else {
+      const im = create("img", {
+        src: url,
+        style: "max-width:100%;max-height:80vh;border-radius:8px"
+      });
+      box.appendChild(im);
     }
 
-    // try to find media objects in common locations
-    // common path: jsonObj.props.pageProps?.graphql?.shortcode_media
-    function safeGet(obj, pathArr) {
-      try {
-        return pathArr.reduce((a, k) => (a && a[k] !== undefined ? a[k] : null), obj);
-      } catch { return null; }
-    }
+    const close = create("button", {
+      text: "Close",
+      style:
+        "display:block;margin-top:12px;padding:8px 12px;border-radius:8px;background:#E53E3E;color:#fff;border:none;cursor:pointer"
+    });
 
-    let mediaRoots = [];
+    close.addEventListener("click", () =>
+      document.body.removeChild(overlay)
+    );
 
-    // Next.js app structure
-    const cand1 = safeGet(jsonObj, ["props","pageProps","graphql","shortcode_media"]);
-    if (cand1) mediaRoots.push(cand1);
+    box.appendChild(close);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  }
 
-    // older sharedData
-    const cand2 = safeGet(jsonObj, ["entry_data","PostPage"]);
-    if (cand2 && Array.isArray(cand2) && cand2[0] && cand2[0].graphql && cand2[0].graphql.shortcode_media) {
-      mediaRoots.push(cand2[0].graphql.shortcode_media);
-    }
+  // Main initialize
+  async function main() {
+    const { input, searchBtn, resultContainer } = findControls();
+    if (!input || !searchBtn) return;
 
-    // sometimes in jsonObj.ld (from ld+json) there's media info
-    const candLd = safeGet(jsonObj, ["ld"]);
-    if (candLd) {
-      // push as a single item-like
-      mediaRoots.push(candLd);
-    }
-
-    // if none found, try to search for a "shortcode_media" anywhere
-    if (!mediaRoots.length) {
-      const s = JSON.stringify(jsonObj);
-      const scMatch = s.match(/"shortcode_media":\s*({[\s\S]*?"is_video":)/);
-      if (scMatch) {
-        try {
-          // try find the object via regex - risky but attempt
-          const idx = s.indexOf('"shortcode_media":');
-          const rest = s.slice(idx + 17);
-          // naive bracket matching to extract object:
-          let depth = 0, end = -1;
-          for (let i=0;i<rest.length;i++){
-            if (rest[i]==='{') depth++;
-            else if (rest[i]==='}') {
-              depth--;
-              if (depth===0) { end = i; break; }
-            }
-          }
-          if (end > 0) {
-            const obj = JSON.parse(rest.slice(0, end+1));
-            mediaRoots.push(obj);
-          }
-        } catch(e){}
-      }
-    }
-
-    if (!mediaRoots.length) {
-      return res.status(200).json({ status: 200, data: [] }); // no media found but OK
-    }
-
-    // normalize to items array
-    const items = [];
-
-    const pushFromRoot = (root) => {
-      if (!root) return;
-      // if carousel
-      if (root.edge_sidecar_to_children && root.edge_sidecar_to_children.edges) {
-        const edges = root.edge_sidecar_to_children.edges;
-        edges.forEach(edge => {
-          const n = edge.node || edge;
-          const thumb = n.display_resources && n.display_resources.length ? n.display_resources[0].src
-                      : n.thumbnail_src || n.thumbnail_url || n.display_url || n.owner && n.owner.profile_pic_url || null;
-          const media = n.video_url || n.display_url || n.display_url || (n.edge_media_to_caption && n.edge_media_to_caption.edges && n.edge_media_to_caption.edges[0] && n.edge_media_to_caption.edges[0].node && n.edge_media_to_caption.edges[0].node.text) || "";
-          items.push({
-            thumb,
-            media: n.is_video ? n.video_url || n.display_url : (n.display_url || n.thumbnail_src || ""),
-            isVideo: !!n.is_video
-          });
-        });
+    searchBtn.addEventListener("click", async ev => {
+      ev.preventDefault();
+      const rawUrl = input.value.trim();
+      if (!rawUrl) {
+        clearResult(resultContainer);
+        showMessage(resultContainer, "Masukkan URL Instagram dulu.", "error");
         return;
       }
 
-      // single media
-      const thumb = root.display_resources && root.display_resources.length ? root.display_resources[0].src
-                  : root.thumbnail_src || root.thumbnail_url || root.display_url || null;
+      clearResult(resultContainer);
+      showMessage(resultContainer, "Mencari media…", "info");
 
-      const media = root.video_url || root.video_play_url || root.display_url || root.url || null;
-      const isVideo = !!(root.is_video || root.media_type === 2 || /mp4|video/.test(String(media || "")));
+      try {
+        const res = await fetch("/api/extract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: rawUrl })
+        });
 
-      items.push({ thumb, media, isVideo });
-    };
+        const text = await res.text();
+        let json;
 
-    mediaRoots.forEach(r => pushFromRoot(r));
+        try {
+          json = JSON.parse(text);
+        } catch {
+          clearResult(resultContainer);
+          showMessage(resultContainer, "Backend tidak mengembalikan JSON.", "error");
+          container.appendChild(
+            create("pre", {
+              text: text,
+              style:
+                "white-space:pre-wrap;background:#2D3748;padding:10px;color:#fff;border-radius:8px;"
+            })
+          );
+          return;
+        }
 
-    // final filtering: ensure urls are strings and unique
-    const out = items
-      .map(i => ({
-        thumb: i.thumb ? String(i.thumb) : null,
-        media: i.media ? String(i.media) : null,
-        isVideo: !!i.isVideo
-      }))
-      .filter(i => i.media || i.thumb)
-      .filter((v,i,arr) => arr.findIndex(x => x.media === v.media && x.thumb === v.thumb) === i);
+        renderMediaList(resultContainer, json);
+      } catch (e) {
+        clearResult(resultContainer);
+        showMessage(resultContainer, "Gagal request: " + e, "error");
+      }
+    });
 
-    return res.status(200).json({ status: 200, data: out });
+    // Clear button
+    const clearBtn = Array.from(
+      document.querySelectorAll("button,input[type=button]")
+    ).find(
+      b =>
+        /hapus|clear|reset/i.test((b.textContent || "").trim()) ||
+        b.id === "btnClear"
+    );
 
-  } catch (err) {
-    console.error("extract error:", err && err.stack ? err.stack : err);
-    return res.status(500).json({ error: "Internal server error", detail: String(err) });
+    if (clearBtn) {
+      clearBtn.addEventListener("click", e => {
+        e.preventDefault();
+        input.value = "";
+        clearResult(findControls().resultContainer);
+      });
+    }
   }
-}
+
+  document.addEventListener("DOMContentLoaded", main);
+  if (document.readyState !== "loading") main();
+})();
